@@ -3,57 +3,86 @@
 const { monthRange, getCostByAccount, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins } = require('./margin');
 const { renderDashboard } = require('./dashboard');
+const { renderLogin } = require('./loginPage');
+const { loadCredentials } = require('./credentials');
+const {
+  verifyPassword,
+  createSession,
+  verifySession,
+  readCookie,
+  buildSessionCookie,
+  buildLogoutCookie,
+  COOKIE_NAME,
+} = require('./auth');
 
 const MARGIN_MAP = process.env.MARGIN_MAP;
-const ACCESS_TOKEN = process.env.ACCESS_TOKEN; // token simples de acesso
+const API_TOKEN = process.env.ACCESS_TOKEN; // fallback opcional p/ a API (integração)
 
-function json(statusCode, body) {
+function json(statusCode, body, extraHeaders = {}) {
   return {
     statusCode,
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...extraHeaders },
     body: JSON.stringify(body),
   };
 }
 
-function html(statusCode, body) {
+function html(statusCode, body, extraHeaders = {}) {
   return {
     statusCode,
-    headers: { 'Content-Type': 'text/html; charset=utf-8' },
+    headers: { 'Content-Type': 'text/html; charset=utf-8', ...extraHeaders },
     body,
   };
 }
 
-/**
- * Extrai o path e o método do evento (HttpApi v2 ou REST v1).
- */
+function redirect(location, extraHeaders = {}) {
+  return { statusCode: 302, headers: { Location: location, ...extraHeaders }, body: '' };
+}
+
 function routeInfo(event) {
-  const method =
-    event.requestContext?.http?.method || event.httpMethod || 'GET';
-  const path =
-    event.rawPath || event.path || event.requestContext?.http?.path || '/';
+  const method = event.requestContext?.http?.method || event.httpMethod || 'GET';
+  let path = event.rawPath || event.path || event.requestContext?.http?.path || '/';
+  // Normaliza removendo o stage (/prod) do começo, se presente
+  const stage = event.requestContext?.stage;
+  if (stage && path.startsWith(`/${stage}`)) path = path.slice(stage.length + 1) || '/';
   return { method, path };
 }
 
-/**
- * Valida o token de acesso. Aceita header 'x-access-token' ou query '?token='.
- */
-function isAuthorized(event) {
-  if (!ACCESS_TOKEN) return false; // sem token configurado = bloqueado
-  const headers = event.headers || {};
-  const headerToken =
-    headers['x-access-token'] || headers['X-Access-Token'];
-  const queryToken = event.queryStringParameters?.token;
-  return headerToken === ACCESS_TOKEN || queryToken === ACCESS_TOKEN;
+/** Parse de body form-urlencoded ou JSON. */
+function parseBody(event) {
+  let raw = event.body || '';
+  if (event.isBase64Encoded) raw = Buffer.from(raw, 'base64').toString('utf8');
+  const ct = (event.headers?.['content-type'] || event.headers?.['Content-Type'] || '').toLowerCase();
+  if (ct.includes('application/json')) {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  const params = new URLSearchParams(raw);
+  const out = {};
+  for (const [k, v] of params) out[k] = v;
+  return out;
 }
 
-/**
- * Monta o payload de custos (mês atual e anterior) com margem aplicada.
- */
+/** Sessão válida? retorna username ou null. */
+async function sessionUser(event) {
+  const cookieHeader = event.headers?.cookie || event.headers?.Cookie;
+  const token = readCookie(cookieHeader, COOKIE_NAME);
+  if (!token) return null;
+  const creds = await loadCredentials();
+  if (!creds.sessionSecret) return null;
+  return verifySession(token, creds.sessionSecret);
+}
+
+/** Auth por token na API (header x-access-token ou ?token=). */
+function apiTokenOk(event) {
+  if (!API_TOKEN) return false;
+  const h = event.headers || {};
+  const t = h['x-access-token'] || h['X-Access-Token'] || event.queryStringParameters?.token;
+  return t === API_TOKEN;
+}
+
 async function buildCostPayload() {
   const marginMap = parseMarginMap(MARGIN_MAP);
   const now = new Date();
   const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-
   const current = monthRange(now);
   const previous = monthRange(prev);
 
@@ -62,7 +91,6 @@ async function buildCostPayload() {
     getCostByAccount(previous),
     getAccountNames(),
   ]);
-
   const withNames = (list) =>
     list.map((c) => ({ ...c, accountName: names[c.accountId] || c.accountId }));
 
@@ -77,30 +105,65 @@ async function buildCostPayload() {
 exports.handler = async (event) => {
   const { method, path } = routeInfo(event);
 
-  // Health check é público
-  if (path.endsWith('/health')) {
+  // Público
+  if (path === '/health') {
     return json(200, { status: 'ok', service: 'mbf-cost-dashboard' });
   }
-
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' };
   }
 
-  if (!isAuthorized(event)) {
-    return json(401, { error: 'unauthorized', hint: 'informe x-access-token ou ?token=' });
+  // Login
+  if (path === '/login' && method === 'GET') {
+    return html(200, renderLogin());
+  }
+  if (path === '/login' && method === 'POST') {
+    const { username, password } = parseBody(event);
+    let creds;
+    try {
+      creds = await loadCredentials();
+    } catch (err) {
+      console.error('Erro ao carregar credenciais:', err);
+      return html(500, renderLogin('Erro interno de configuração.'));
+    }
+    if (
+      !creds.username ||
+      !creds.passwordHash ||
+      username !== creds.username ||
+      !verifyPassword(password || '', creds.passwordHash)
+    ) {
+      return html(401, renderLogin('Usuário ou senha inválidos.'));
+    }
+    const token = createSession(creds.username, creds.sessionSecret);
+    return redirect('.', { 'Set-Cookie': buildSessionCookie(token) });
+  }
+  if (path === '/logout') {
+    return redirect('login', { 'Set-Cookie': buildLogoutCookie() });
   }
 
-  try {
-    if (path.endsWith('/api/costs')) {
-      const payload = await buildCostPayload();
-      return json(200, payload);
+  // API JSON — aceita sessão OU token de API
+  if (path === '/api/costs') {
+    const user = await sessionUser(event);
+    if (!user && !apiTokenOk(event)) {
+      return json(401, { error: 'unauthorized' });
     }
+    try {
+      return json(200, await buildCostPayload());
+    } catch (err) {
+      console.error('Erro custos:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
 
-    // Rota raiz (ou qualquer outra) devolve o dashboard HTML
-    const payload = await buildCostPayload();
-    return html(200, renderDashboard(payload));
+  // Dashboard (raiz) — exige sessão, senão manda pro login
+  const user = await sessionUser(event);
+  if (!user) {
+    return redirect('login');
+  }
+  try {
+    return html(200, renderDashboard(await buildCostPayload()));
   } catch (err) {
-    console.error('Erro ao gerar custos:', err);
+    console.error('Erro dashboard:', err);
     return json(500, { error: 'internal_error', message: err.message });
   }
 };

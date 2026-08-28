@@ -51,6 +51,7 @@ Resources:
           STAGE: !Ref Stage
           ACCESS_TOKEN: !Ref AccessToken
           MARGIN_MAP: !Ref MarginMap
+          SSM_PREFIX: !Sub '/mbf/${Stage}/cost-dashboard'
       Policies:
         - Statement:
             - Effect: Allow
@@ -61,6 +62,14 @@ Resources:
               Action:
                 - organizations:ListAccounts
               Resource: '*'
+            - Effect: Allow
+              Action:
+                - ssm:GetParametersByPath
+                - ssm:GetParameter
+                - ssm:GetParameters
+              Resource:
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard'
+                - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard/*'
       Events:
         Root:
           Type: HttpApi
