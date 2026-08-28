@@ -1,0 +1,14 @@
+{
+  "name": "mbf-cost-dashboard",
+  "version": "1.0.0",
+  "description": "Painel de gestão de custos por conta/cliente (Cost Explorer + margem)",
+  "main": "src/handler.js",
+  "scripts": {
+    "test": "node --test"
+  },
+  "dependencies": {
+    "@aws-sdk/client-cost-explorer": "^3.658.0",
+    "@aws-sdk/client-organizations": "^3.658.0",
+    "@aws-sdk/client-ssm": "^3.658.0"
+  }
+}

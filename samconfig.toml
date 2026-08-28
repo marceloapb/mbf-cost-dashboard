@@ -1,0 +1,13 @@
+version = 0.1
+[default.deploy.parameters]
+stack_name = "mbf-cost-dashboard"
+region = "us-east-1"
+confirm_changeset = false
+capabilities = "CAPABILITY_IAM"
+s3_bucket = "mbf-sam-deploy-us-east-1"
+# Use lista para preservar o JSON de MarginMap sem o shell cortar aspas/espacos.
+# Substitua <ACCESS_TOKEN> pelo token real antes do deploy (NAO comitar o token).
+parameter_overrides = [
+    "AccessToken=<ACCESS_TOKEN>",
+    "MarginMap={\"532404260870\":1.5,\"default\":1.0}",
+]

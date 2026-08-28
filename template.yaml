@@ -1,0 +1,81 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: MBF Cost Dashboard - painel de custos por conta/cliente (Cost Explorer + margem)
+
+Parameters:
+  Stage:
+    Type: String
+    Default: prod
+  AccessToken:
+    Type: String
+    NoEcho: true
+    Description: Token simples para acessar o painel (via header x-access-token ou ?token=)
+  MarginMap:
+    Type: String
+    Default: '{"default":1.0}'
+    Description: >-
+      JSON com multiplicador de margem por accountId.
+      Ex: {"532404260870":1.5,"default":1.0}
+
+Globals:
+  Function:
+    Runtime: nodejs22.x
+    Timeout: 30
+    MemorySize: 256
+    Tracing: Active
+
+Resources:
+  CostDashboardApi:
+    Type: AWS::Serverless::HttpApi
+    Properties:
+      StageName: !Ref Stage
+      CorsConfiguration:
+        AllowOrigins:
+          - '*'
+        AllowMethods:
+          - GET
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - X-Access-Token
+        MaxAge: 86400
+
+  CostDashboardFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: !Sub 'mbf-${Stage}-cost-dashboard'
+      Handler: src/handler.handler
+      CodeUri: .
+      Environment:
+        Variables:
+          STAGE: !Ref Stage
+          ACCESS_TOKEN: !Ref AccessToken
+          MARGIN_MAP: !Ref MarginMap
+      Policies:
+        - Statement:
+            - Effect: Allow
+              Action:
+                - ce:GetCostAndUsage
+              Resource: '*'
+            - Effect: Allow
+              Action:
+                - organizations:ListAccounts
+              Resource: '*'
+      Events:
+        Root:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CostDashboardApi
+            Path: /
+            Method: GET
+        Api:
+          Type: HttpApi
+          Properties:
+            ApiId: !Ref CostDashboardApi
+            Path: /{proxy+}
+            Method: ANY
+
+Outputs:
+  DashboardUrl:
+    Description: URL do painel de custos
+    Value: !Sub 'https://${CostDashboardApi}.execute-api.${AWS::Region}.amazonaws.com/${Stage}/'

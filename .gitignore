@@ -1,0 +1,17 @@
+# Dependências
+node_modules/
+
+# Build SAM
+.aws-sam/
+
+# Ambiente / segredos — NUNCA versionar
+.env
+.env-update.json
+*.local
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
