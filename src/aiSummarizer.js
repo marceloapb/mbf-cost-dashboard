@@ -7,20 +7,19 @@ const {
 const { buildPrompt, extractModelText, parseAnalysis, URGENCIAS } = require('./aiParse');
 
 const client = new BedrockRuntimeClient({ region: process.env.AWS_REGION || 'us-east-1' });
-const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-haiku-4-5-20251001-v1:0';
+const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'amazon.nova-lite-v1:0';
 
 /**
- * Analisa um e-mail via Bedrock (Claude). Retorna a análise normalizada.
+ * Analisa um e-mail via Amazon Bedrock (modelos Amazon Nova).
+ * Formato Nova: { messages:[{role,content:[{text}]}], inferenceConfig:{maxTokens,temperature} }.
  * @param {{subject:string, from:string, text:string}} email
- * @param {string} [modelId] id do modelo/inference profile (sobrepõe o default)
+ * @param {string} [modelId] id do modelo (sobrepõe o default)
  * @returns {Promise<object>}
  */
 async function summarizeEmail(email, modelId) {
   const payload = {
-    anthropic_version: 'bedrock-2023-05-31',
-    max_tokens: 1024,
-    temperature: 0.2,
-    messages: [{ role: 'user', content: [{ type: 'text', text: buildPrompt(email) }] }],
+    messages: [{ role: 'user', content: [{ text: buildPrompt(email) }] }],
+    inferenceConfig: { maxTokens: 1024, temperature: 0.2 },
   };
   const cmd = new InvokeModelCommand({
     modelId: modelId || MODEL_ID,

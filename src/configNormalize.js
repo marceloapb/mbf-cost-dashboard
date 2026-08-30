@@ -5,13 +5,15 @@
  */
 
 const ALLOWED_MODELS = [
-  'us.anthropic.claude-haiku-4-5-20251001-v1:0',
-  'us.anthropic.claude-sonnet-4-5-20250929-v1:0',
+  'amazon.nova-lite-v1:0',
+  'amazon.nova-pro-v1:0',
+  'amazon.nova-micro-v1:0',
 ];
 
 const MODEL_OPTIONS = [
-  { id: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude Haiku 4.5 (rápido e barato)' },
-  { id: 'us.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5 (mais preciso)' },
+  { id: 'amazon.nova-lite-v1:0', label: 'Amazon Nova Lite (equilíbrio — recomendado)' },
+  { id: 'amazon.nova-pro-v1:0', label: 'Amazon Nova Pro (mais capaz)' },
+  { id: 'amazon.nova-micro-v1:0', label: 'Amazon Nova Micro (mais rápido/barato)' },
 ];
 
 function clampInt(v, def, min, max) {

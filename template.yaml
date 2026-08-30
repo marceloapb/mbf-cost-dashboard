@@ -60,7 +60,7 @@ Resources:
           MARGIN_MAP: !Ref MarginMap
           SSM_PREFIX: !Sub '/mbf/${Stage}/cost-dashboard'
           EMAILS_TABLE: !Sub 'mbf-${Stage}-aws-emails'
-          BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          BEDROCK_MODEL_ID: amazon.nova-lite-v1:0
           SCAN_RULE_NAME: !Sub 'mbf-cost-dashboard-scan-${Stage}'
           SELF_FUNCTION_NAME: !Sub 'mbf-${Stage}-cost-dashboard'
       Policies:
@@ -88,6 +88,7 @@ Resources:
               Resource:
                 - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*'
                 - 'arn:aws:bedrock:*::foundation-model/anthropic.*'
+                - 'arn:aws:bedrock:*::foundation-model/amazon.*'
             - Effect: Allow
               Action:
                 - dynamodb:PutItem

@@ -55,6 +55,11 @@ test('extractModelText: formato Anthropic content[]', () => {
   assert.strictEqual(extractModelText(null), '');
 });
 
+test('extractModelText: formato Amazon Nova output.message.content[]', () => {
+  const nova = { output: { message: { role: 'assistant', content: [{ text: 'resposta ' }, { text: 'nova' }] } } };
+  assert.strictEqual(extractModelText(nova), 'resposta nova');
+});
+
 test('buildPrompt: inclui assunto, remetente e pede JSON', () => {
   const p = buildPrompt({ subject: 'Assunto X', from: 'aws@amazon.com', text: 'corpo' });
   assert.ok(p.includes('Assunto X'));

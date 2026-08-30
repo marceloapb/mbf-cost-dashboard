@@ -34,12 +34,20 @@ function buildPrompt(email) {
 }
 
 /**
- * Extrai o texto de resposta do payload do modelo (formato Anthropic Messages).
+ * Extrai o texto de resposta do payload do modelo.
+ * Suporta: Amazon Nova (output.message.content[].text), Anthropic Messages (content[].text)
+ * e formato legado (completion).
  * @param {object} body corpo já parseado da resposta do Bedrock
  * @returns {string}
  */
 function extractModelText(body) {
   if (!body) return '';
+  // Amazon Nova
+  const novaContent = body.output && body.output.message && body.output.message.content;
+  if (Array.isArray(novaContent)) {
+    return novaContent.map((c) => (c && c.text) || '').join('').trim();
+  }
+  // Anthropic (Claude) Messages
   if (Array.isArray(body.content)) {
     return body.content.map((c) => (c && c.text) || '').join('').trim();
   }
