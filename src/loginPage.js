@@ -229,7 +229,7 @@ function renderEmails(p) {
 <body>
   <header>
     <h1>📧 E-mails AWS</h1>
-    <div><a href=".">← Painel</a> · <a href="config/imap">⚙️ Config IMAP</a> · <a href="logout">Sair</a></div>
+    <div><a href=".">← Painel</a> · <a href="config-imap">⚙️ Config IMAP</a> · <a href="logout">Sair</a></div>
   </header>
   <div class="toolbar">
     <button id="scanBtn">🔄 Verificar agora</button>
@@ -340,7 +340,7 @@ function renderImapConfig(p, error, ok) {
   </style>
 </head>
 <body>
-  <form class="card" method="POST" action="imap">
+  <form class="card" method="POST" action="config-imap">
     <h1>Configuração IMAP</h1>
     <div class="sub">Credenciais das caixas que recebem os e-mails da AWS. As senhas são guardadas cifradas (SSM SecureString) e nunca exibidas.</div>
     ${okBox}${errBox}

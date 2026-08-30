@@ -395,7 +395,7 @@ exports.handler = async (event) => {
     return html(200, renderEmails({ username: user }));
   }
   // Tela de configuração IMAP (HTML) — exige sessão.
-  if (path === '/config/imap' && method === 'GET') {
+  if (path === '/config-imap' && method === 'GET') {
     const user = await sessionUser(event);
     if (!user) return redirect('login');
     let cfg;
@@ -407,8 +407,8 @@ exports.handler = async (event) => {
     }
     return html(200, renderImapConfig({ username: user, config: cfg }));
   }
-  // Salvar config IMAP (form) — exige sessão. Rota relativa "imap" → /config/imap.
-  if (path === '/config/imap' && method === 'POST') {
+  // Salvar config IMAP (form) — exige sessão. Rota relativa "config-imap".
+  if (path === '/config-imap' && method === 'POST') {
     const user = await sessionUser(event);
     if (!user) return redirect('login');
     const b = parseBody(event);
