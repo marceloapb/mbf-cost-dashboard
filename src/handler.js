@@ -417,7 +417,7 @@ exports.handler = async (event) => {
       const u = (b[`user${i}`] || '').trim();
       if (u) mailboxes.push({ user: u, password: b[`pass${i}`] || '' });
     }
-    const incoming = { host: (b.host || '').trim(), port: Number(b.port) || 993, mailboxes };
+    const incoming = { host: (b.host || '').trim(), port: Number(b.port) || 993, mailboxes, senders: b.senders || '' };
     if (!incoming.host || !mailboxes.length) {
       const cfg = redactConfig(await loadImapConfig());
       return html(400, renderImapConfig({ username: user, config: cfg }, 'Informe o servidor e ao menos uma caixa.'));

@@ -33,7 +33,7 @@ const TTL_MS = 30 * 1000;
 async function loadImapConfig() {
   const now = Date.now();
   if (cache && now - cacheAt < TTL_MS) return cache;
-  let cfg = { host: '', port: 993, mailboxes: [] };
+  let cfg = { host: '', port: 993, mailboxes: [], senders: [] };
   try {
     const res = await ssm.send(
       new GetParameterCommand({ Name: IMAP_PARAM, WithDecryption: true })
@@ -62,7 +62,23 @@ function normalize(raw) {
         .filter((m) => m && typeof m.user === 'string' && m.user.includes('@'))
         .map((m) => ({ user: m.user.trim(), password: String(m.password || '') }))
     : [];
-  return { host, port, mailboxes };
+  // Remetentes/domínios personalizados a monitorar. Vazio => usa o padrão AWS.
+  // Aceita array ou string (linhas/vírgulas). Guarda em minúsculas, sem duplicatas.
+  let senders = [];
+  const rawSenders = raw.senders;
+  if (Array.isArray(rawSenders)) {
+    senders = rawSenders;
+  } else if (typeof rawSenders === 'string') {
+    senders = rawSenders.split(/[\n,;]+/);
+  }
+  senders = Array.from(
+    new Set(
+      senders
+        .map((s) => String(s).trim().toLowerCase())
+        .filter(Boolean)
+    )
+  ).slice(0, 50);
+  return { host, port, mailboxes, senders };
 }
 
 /**
@@ -102,6 +118,7 @@ function redactConfig(cfg) {
     host: cfg.host,
     port: cfg.port,
     mailboxes: cfg.mailboxes.map((m) => ({ user: m.user, hasPassword: Boolean(m.password) })),
+    senders: cfg.senders || [],
   };
 }
 

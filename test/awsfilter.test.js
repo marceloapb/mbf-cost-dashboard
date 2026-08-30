@@ -29,3 +29,17 @@ test('isAwsEmail: fallback por assunto quando domínio contém amazon/aws', () =
   // domínio não contém amazon/aws → não entra pelo fallback mesmo com assunto AWS
   assert.strictEqual(isAwsEmail({ from: 'x@outro.com', subject: 'AWS EC2 news' }), false);
 });
+
+test('isAwsEmail: remetentes personalizados substituem o padrão', () => {
+  const senders = ['@bloise.com.br', 'faturas@fornecedor.com'];
+  // bate na lista custom
+  assert.ok(isAwsEmail({ from: 'Marcelo <marcelo@bloise.com.br>', subject: 'x' }, senders));
+  assert.ok(isAwsEmail({ from: 'faturas@fornecedor.com', subject: 'Boleto' }, senders));
+  // remetente AWS NÃO entra quando há lista custom que não o inclui
+  assert.strictEqual(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, senders), false);
+});
+
+test('isAwsEmail: lista custom vazia cai no padrão AWS', () => {
+  assert.ok(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, []));
+  assert.strictEqual(isAwsEmail({ from: 'x@outro.com', subject: 'y' }, []), false);
+});

@@ -336,6 +336,7 @@ function renderImapConfig(p, error, ok) {
     .sub { color:var(--mut); font-size:13px; margin-bottom:18px; }
     label { display:block; font-size:13px; color:var(--mut); margin:12px 0 6px; }
     input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; }
+    textarea { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; resize:vertical; }
     .row2 { display:flex; gap:12px; }
     .row2 > div { flex:1; }
     .mbox { border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:14px; }
@@ -362,6 +363,9 @@ function renderImapConfig(p, error, ok) {
       </div>
     </div>
     ${boxRows}
+    <label>Remetentes a monitorar (opcional)</label>
+    <textarea name="senders" rows="4" placeholder="Um por linha. Ex.:&#10;@amazonaws.com&#10;aws-marketing@amazon.com&#10;no-reply@aws.amazon.com">${esc((cfg.senders || []).join('\n'))}</textarea>
+    <div class="note">Se preencher, o sistema monitora <b>exatamente</b> esses remetentes/domínios (basta uma parte do endereço). Se deixar em branco, usa a detecção automática de e-mails da AWS.</div>
     <button type="submit">Salvar configuração</button>
     <div class="note">Dica: no Hostinger o servidor é <b>imap.hostinger.com</b>, porta <b>993</b> (SSL). O leitor apenas <b>lê</b> os e-mails (não apaga nem move).</div>
     <a class="back" href="emails">← Voltar aos e-mails</a>

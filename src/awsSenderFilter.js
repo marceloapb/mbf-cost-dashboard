@@ -42,12 +42,25 @@ function extractAddress(from) {
 }
 
 /**
- * Decide se um e-mail deve ser processado como "e-mail da AWS".
+ * Decide se um e-mail deve ser processado.
+ * Se `customSenders` for uma lista não vazia, usa EXCLUSIVAMENTE ela (substitui o padrão AWS):
+ * o e-mail é aceito se o endereço do remetente contiver qualquer um dos termos informados
+ * (ex.: "@amazonaws.com", "aws-marketing@amazon.com", "billing@").
+ * Se `customSenders` for vazio/ausente, aplica a heurística padrão de remetentes AWS.
  * @param {{from?: string, subject?: string}} email
+ * @param {string[]} [customSenders] lista de remetentes/domínios (minúsculas) a monitorar
  * @returns {boolean}
  */
-function isAwsEmail(email) {
+function isAwsEmail(email, customSenders) {
   const addr = extractAddress(email && email.from);
+
+  // Modo personalizado: substitui a lista padrão.
+  if (Array.isArray(customSenders) && customSenders.length) {
+    if (!addr) return false;
+    return customSenders.some((term) => term && addr.includes(String(term).toLowerCase()));
+  }
+
+  // Modo padrão (AWS).
   if (addr && AWS_SENDER_PATTERNS.some((re) => re.test(addr))) return true;
   // Fallback: remetente não bateu, mas o assunto sugere fortemente AWS
   // E o domínio contém "amazon" ou "aws".
