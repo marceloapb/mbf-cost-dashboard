@@ -156,7 +156,6 @@ function renderDashboard(payload, username) {
   </div>
   <div id="tablesArea">
     ${renderTable('Mês selecionado', payload.current)}
-    ${renderTable('Mês anterior', payload.previous)}
   </div>
   <footer>
     Fonte: AWS Cost Explorer (UnblendedCost). "A cobrar" = custo × margem configurada por conta.
@@ -304,7 +303,7 @@ function renderDashboard(payload, username) {
         fetch('api/costs?month=' + encodeURIComponent(m), { credentials: 'same-origin' })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .then(function (d) {
-            tablesArea.innerHTML = accTable('Mês selecionado', d.current) + accTable('Mês anterior', d.previous);
+            tablesArea.innerHTML = accTable('Mês selecionado', d.current);
             tablesArea.style.opacity = '1';
             if (monthHint) monthHint.textContent = '';
             if (genAt && d.generatedAt) genAt.textContent = 'gerado em ' + d.generatedAt;
