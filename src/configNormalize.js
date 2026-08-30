@@ -11,9 +11,9 @@ const ALLOWED_MODELS = [
 ];
 
 const MODEL_OPTIONS = [
-  { id: 'amazon.nova-lite-v1:0', label: 'Amazon Nova Lite (equilíbrio — recomendado)' },
-  { id: 'amazon.nova-pro-v1:0', label: 'Amazon Nova Pro (mais capaz)' },
-  { id: 'amazon.nova-micro-v1:0', label: 'Amazon Nova Micro (mais rápido/barato)' },
+  { id: 'amazon.nova-micro-v1:0', label: 'Amazon Nova Micro — menor custo (rápido)' },
+  { id: 'amazon.nova-lite-v1:0', label: 'Amazon Nova Lite — custo médio (recomendado)' },
+  { id: 'amazon.nova-pro-v1:0', label: 'Amazon Nova Pro — maior custo (mais capaz)' },
 ];
 
 function clampInt(v, def, min, max) {
