@@ -182,7 +182,186 @@ function renderEnroll(p, error) {
 </html>`;
 }
 
-module.exports = { renderLogin, renderMfa, renderEnroll, renderChangePassword };
+module.exports = { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderImapConfig };
+
+/**
+ * Aba "E-mails AWS": lista os e-mails processados com badges de urgência,
+ * detalhe expansível e botão "Verificar agora". Os dados vêm de GET /api/emails.
+ * @param {object} p
+ * @param {string} p.username
+ */
+function renderEmails(p) {
+  const user = String(p && p.username ? p.username : '').replace(/</g, '&lt;');
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MBF — E-mails AWS</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }
+    * { box-sizing:border-box; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
+    header { max-width:960px; margin:0 auto 20px; display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; }
+    h1 { font-size:20px; margin:0; }
+    a { color:var(--acc); text-decoration:none; }
+    a:hover { text-decoration:underline; }
+    .toolbar { max-width:960px; margin:0 auto 16px; display:flex; gap:12px; align-items:center; }
+    button { padding:10px 14px; border:0; border-radius:8px; background:var(--acc); color:#fff; font-weight:600; cursor:pointer; font-size:14px; }
+    button:disabled { opacity:.6; cursor:default; }
+    .hint { color:var(--mut); font-size:13px; }
+    .card { max-width:960px; margin:0 auto 12px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 16px; }
+    .row { display:flex; justify-content:space-between; gap:12px; cursor:pointer; align-items:flex-start; }
+    .subj { font-weight:600; }
+    .meta { color:var(--mut); font-size:12px; margin-top:4px; }
+    .badge { font-size:11px; font-weight:700; padding:3px 8px; border-radius:999px; white-space:nowrap; }
+    .u-alta { background:#3a1d1d; color:#ffb4b4; border:1px solid #5a2a2a; }
+    .u-media { background:#3a301d; color:#ffd9a0; border:1px solid #5a4a2a; }
+    .u-baixa { background:#1d2a3a; color:#a9cbff; border:1px solid #2a3f5a; }
+    .u-informativo { background:#20242e; color:#9aa3b5; border:1px solid var(--line); }
+    .detail { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); display:none; }
+    .detail.open { display:block; }
+    .detail h4 { margin:10px 0 4px; font-size:13px; color:var(--mut); }
+    .acoes { margin:4px 0 0; padding-left:18px; }
+    .empty { max-width:960px; margin:0 auto; color:var(--mut); text-align:center; padding:40px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📧 E-mails AWS</h1>
+    <div><a href=".">← Painel</a> · <a href="config/imap">⚙️ Config IMAP</a> · <a href="logout">Sair</a></div>
+  </header>
+  <div class="toolbar">
+    <button id="scanBtn">🔄 Verificar agora</button>
+    <span class="hint" id="scanHint">Usuário: ${user}</span>
+  </div>
+  <div id="listArea"><div class="empty">Carregando…</div></div>
+
+  <script>
+    (function () {
+      var listArea = document.getElementById('listArea');
+      var scanBtn = document.getElementById('scanBtn');
+      var scanHint = document.getElementById('scanHint');
+      function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+      function badge(u){ u = u || 'informativo'; return '<span class="badge u-'+esc(u)+'">'+esc(u.toUpperCase())+'</span>'; }
+      function render(items){
+        if(!items || !items.length){ listArea.innerHTML = '<div class="empty">Nenhum e-mail da AWS processado ainda. Configure o IMAP e clique em Verificar agora.</div>'; return; }
+        listArea.innerHTML = items.map(function(it, i){
+          var acoes = (it.acoes && it.acoes.length)
+            ? '<h4>Ações</h4><ul class="acoes">'+it.acoes.map(function(a){return '<li>'+esc(a)+'</li>';}).join('')+'</ul>'
+            : '<h4>Ações</h4><div class="hint">Nenhuma ação necessária.</div>';
+          var prazo = it.prazo ? '<h4>Prazo</h4><div>'+esc(it.prazo)+'</div>' : '';
+          return '<div class="card">'
+            + '<div class="row" data-i="'+i+'"><div><div class="subj">'+esc(it.assuntoPt || it.subjectOriginal)+'</div>'
+            + '<div class="meta">'+esc(it.fromAddress || it.from)+' · '+esc((it.date||"").slice(0,10))+' · '+esc(it.mailbox||"")+'</div></div>'
+            + badge(it.urgencia)+'</div>'
+            + '<div class="detail" id="d'+i+'">'
+            + '<h4>Resumo</h4><div>'+esc(it.resumo)+'</div>'
+            + acoes + prazo
+            + '<h4>Assunto original</h4><div class="hint">'+esc(it.subjectOriginal)+'</div>'
+            + '</div></div>';
+        }).join('');
+        listArea.querySelectorAll('.row').forEach(function(r){
+          r.addEventListener('click', function(){ var d = document.getElementById('d'+r.getAttribute('data-i')); if(d) d.classList.toggle('open'); });
+        });
+      }
+      function load(){
+        fetch('api/emails', { credentials:'same-origin' })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(d){ render(d.items || []); })
+          .catch(function(e){ listArea.innerHTML = '<div class="empty">Erro ao carregar: '+esc(e.message)+'</div>'; });
+      }
+      scanBtn.addEventListener('click', function(){
+        scanBtn.disabled = true; scanHint.textContent = 'Verificando caixas… (pode levar alguns segundos)';
+        fetch('api/emails/scan', { method:'POST', credentials:'same-origin' })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(d){ scanHint.textContent = 'Concluído: '+(d.novos||0)+' novo(s) de '+(d.scanned||0)+' lido(s).'; load(); })
+          .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); })
+          .finally(function(){ scanBtn.disabled = false; });
+      });
+      load();
+    })();
+  </script>
+</body>
+</html>`;
+}
+
+/**
+ * Tela de configuração do IMAP (host/porta + caixas com senha).
+ * As senhas nunca voltam preenchidas: mostra placeholder indicando se há senha salva.
+ * @param {object} p
+ * @param {string} p.username
+ * @param {{host:string,port:number,mailboxes:Array<{user:string,hasPassword:boolean}>}} p.config
+ * @param {string} [error]
+ * @param {string} [ok]
+ */
+function renderImapConfig(p, error, ok) {
+  const cfg = (p && p.config) || { host: '', port: 993, mailboxes: [] };
+  const errBox = error ? `<div class="err">${String(error).replace(/</g, '&lt;')}</div>` : '';
+  const okBox = ok ? `<div class="ok">${String(ok).replace(/</g, '&lt;')}</div>` : '';
+  const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;').replace(/</g, '&lt;');
+  // Garante ao menos 2 linhas de caixa para preencher.
+  const boxes = cfg.mailboxes.slice();
+  while (boxes.length < 2) boxes.push({ user: '', hasPassword: false });
+  const boxRows = boxes
+    .map(
+      (m, i) => `
+      <div class="mbox">
+        <label>E-mail ${i + 1}</label>
+        <input name="user${i}" type="email" value="${esc(m.user)}" placeholder="conta@bloise.com.br" autocomplete="off">
+        <label>Senha ${i + 1}</label>
+        <input name="pass${i}" type="password" placeholder="${m.hasPassword ? '•••••••• (configurada — deixe em branco para manter)' : 'senha da conta de e-mail'}" autocomplete="new-password">
+      </div>`
+    )
+    .join('');
+  return `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>MBF — Configuração IMAP</title>
+  <style>
+    :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }
+    * { box-sizing:border-box; }
+    body { margin:0; min-height:100vh; display:flex; align-items:flex-start; justify-content:center; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:40px 16px; }
+    .card { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:26px; }
+    h1 { font-size:18px; margin:0 0 4px; }
+    .sub { color:var(--mut); font-size:13px; margin-bottom:18px; }
+    label { display:block; font-size:13px; color:var(--mut); margin:12px 0 6px; }
+    input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; }
+    .row2 { display:flex; gap:12px; }
+    .row2 > div { flex:1; }
+    .mbox { border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:14px; }
+    button { width:100%; margin-top:20px; padding:12px; border:0; border-radius:8px; background:var(--acc); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+    .err { background:#3a1d1d; border:1px solid #5a2a2a; color:#ffb4b4; padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+    .ok { background:#12301f; border:1px solid #1f5a3a; color:#8ff0bf; padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
+    .back { display:block; text-align:center; margin-top:14px; color:var(--mut); font-size:13px; text-decoration:none; }
+    .note { color:var(--mut); font-size:12px; margin-top:8px; line-height:1.5; }
+  </style>
+</head>
+<body>
+  <form class="card" method="POST" action="imap">
+    <h1>Configuração IMAP</h1>
+    <div class="sub">Credenciais das caixas que recebem os e-mails da AWS. As senhas são guardadas cifradas (SSM SecureString) e nunca exibidas.</div>
+    ${okBox}${errBox}
+    <div class="row2">
+      <div>
+        <label>Servidor IMAP</label>
+        <input name="host" value="${esc(cfg.host || 'imap.hostinger.com')}" placeholder="imap.hostinger.com">
+      </div>
+      <div>
+        <label>Porta</label>
+        <input name="port" value="${esc(cfg.port || 993)}" inputmode="numeric">
+      </div>
+    </div>
+    ${boxRows}
+    <button type="submit">Salvar configuração</button>
+    <div class="note">Dica: no Hostinger o servidor é <b>imap.hostinger.com</b>, porta <b>993</b> (SSL). O leitor apenas <b>lê</b> os e-mails (não apaga nem move).</div>
+    <a class="back" href="emails">← Voltar aos e-mails</a>
+  </form>
+</body>
+</html>`;
+}
 
 /**
  * Página de troca de senha (exige sessão). Pede senha atual + nova + confirmação.

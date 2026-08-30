@@ -16,11 +16,23 @@ Parameters:
 Globals:
   Function:
     Runtime: nodejs22.x
-    Timeout: 30
-    MemorySize: 256
+    Timeout: 120
+    MemorySize: 512
     Tracing: Active
 
 Resources:
+  EmailsTable:
+    Type: AWS::DynamoDB::Table
+    Properties:
+      TableName: !Sub 'mbf-${Stage}-aws-emails'
+      BillingMode: PAY_PER_REQUEST
+      AttributeDefinitions:
+        - AttributeName: messageId
+          AttributeType: S
+      KeySchema:
+        - AttributeName: messageId
+          KeyType: HASH
+
   CostDashboardApi:
     Type: AWS::Serverless::HttpApi
     Properties:
@@ -47,6 +59,8 @@ Resources:
           STAGE: !Ref Stage
           MARGIN_MAP: !Ref MarginMap
           SSM_PREFIX: !Sub '/mbf/${Stage}/cost-dashboard'
+          EMAILS_TABLE: !Sub 'mbf-${Stage}-aws-emails'
+          BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
       Policies:
         - Statement:
             - Effect: Allow
@@ -66,6 +80,21 @@ Resources:
               Resource:
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard'
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard/*'
+            - Effect: Allow
+              Action:
+                - bedrock:InvokeModel
+              Resource:
+                - !Sub 'arn:aws:bedrock:*:${AWS::AccountId}:inference-profile/*'
+                - 'arn:aws:bedrock:*::foundation-model/anthropic.*'
+            - Effect: Allow
+              Action:
+                - dynamodb:PutItem
+                - dynamodb:GetItem
+                - dynamodb:UpdateItem
+                - dynamodb:Query
+                - dynamodb:Scan
+              Resource:
+                - !GetAtt EmailsTable.Arn
       Events:
         Root:
           Type: HttpApi
@@ -79,6 +108,11 @@ Resources:
             ApiId: !Ref CostDashboardApi
             Path: /{proxy+}
             Method: ANY
+        HourlyScan:
+          Type: Schedule
+          Properties:
+            Schedule: rate(1 hour)
+            Input: '{"source":"scheduled-scan"}'
 
 Outputs:
   DashboardUrl:

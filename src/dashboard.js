@@ -87,6 +87,7 @@ function renderDashboard(payload, username) {
   const userBar = username
     ? `<div class="userbar">
          <span class="uname">👤 ${escapeHtml(username)}</span>
+         <a class="ulink" href="emails">📧 E-mails AWS</a>
          <a class="ulink" href="senha">Trocar senha</a>
          <a class="ulink" href="logout">Sair</a>
        </div>`

@@ -3,8 +3,11 @@
 const { monthRange, monthRangeFromLabel, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins, applyMarginToServices, applyMarginToUsageTypes, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
-const { renderLogin, renderMfa, renderEnroll, renderChangePassword } = require('./loginPage');
+const { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderImapConfig } = require('./loginPage');
 const { loadCredentials, saveTotpSecret, savePasswordHash } = require('./credentials');
+const { loadImapConfig, saveImapConfig, redactConfig } = require('./emailConfig');
+const emailStore = require('./emailStore');
+const { runScan } = require('./emailPipeline');
 const totp = require('./totp');
 const {
   hashPassword,
@@ -210,6 +213,18 @@ async function buildServiceUsageDetail(accountId, serviceName, monthLabel) {
 }
 
 exports.handler = async (event) => {
+  // Evento agendado (EventBridge) → roda o scan de e-mails e encerra (sem HTTP).
+  if (event && event.source === 'scheduled-scan') {
+    try {
+      const result = await runScan();
+      console.log('Scan agendado:', JSON.stringify(result));
+      return result;
+    } catch (err) {
+      console.error('Erro no scan agendado:', err);
+      return { error: err.message };
+    }
+  }
+
   const { method, path } = routeInfo(event);
 
   // Público
@@ -370,6 +385,74 @@ exports.handler = async (event) => {
       return html(500, renderChangePassword({ username: user }, 'Não foi possível salvar a nova senha.'));
     }
     return html(200, renderChangePassword({ username: user }, undefined, 'Senha alterada com sucesso.'));
+  }
+
+  // ===== Leitor de e-mails AWS com IA =====
+  // Aba de e-mails (HTML) — exige sessão.
+  if (path === '/emails' && method === 'GET') {
+    const user = await sessionUser(event);
+    if (!user) return redirect('login');
+    return html(200, renderEmails({ username: user }));
+  }
+  // Tela de configuração IMAP (HTML) — exige sessão.
+  if (path === '/config/imap' && method === 'GET') {
+    const user = await sessionUser(event);
+    if (!user) return redirect('login');
+    let cfg;
+    try {
+      cfg = redactConfig(await loadImapConfig());
+    } catch (err) {
+      console.error('Erro ao carregar imap-config:', err);
+      cfg = { host: '', port: 993, mailboxes: [] };
+    }
+    return html(200, renderImapConfig({ username: user, config: cfg }));
+  }
+  // Salvar config IMAP (form) — exige sessão. Rota relativa "imap" → /config/imap.
+  if (path === '/config/imap' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user) return redirect('login');
+    const b = parseBody(event);
+    const mailboxes = [];
+    for (let i = 0; i < 5; i++) {
+      const u = (b[`user${i}`] || '').trim();
+      if (u) mailboxes.push({ user: u, password: b[`pass${i}`] || '' });
+    }
+    const incoming = { host: (b.host || '').trim(), port: Number(b.port) || 993, mailboxes };
+    if (!incoming.host || !mailboxes.length) {
+      const cfg = redactConfig(await loadImapConfig());
+      return html(400, renderImapConfig({ username: user, config: cfg }, 'Informe o servidor e ao menos uma caixa.'));
+    }
+    try {
+      await saveImapConfig(incoming);
+    } catch (err) {
+      console.error('Erro ao salvar imap-config:', err);
+      const cfg = redactConfig(await loadImapConfig());
+      return html(500, renderImapConfig({ username: user, config: cfg }, 'Não foi possível salvar a configuração.'));
+    }
+    const cfg = redactConfig(await loadImapConfig());
+    return html(200, renderImapConfig({ username: user, config: cfg }, undefined, 'Configuração salva com sucesso.'));
+  }
+  // Lista JSON dos e-mails processados — exige sessão OU token de API.
+  if (path === '/api/emails' && method === 'GET') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    try {
+      return json(200, { items: await emailStore.list(200) });
+    } catch (err) {
+      console.error('Erro ao listar e-mails:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
+  // Verificar agora (sob demanda) — exige sessão OU token de API.
+  if (path === '/api/emails/scan' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    try {
+      return json(200, await runScan());
+    } catch (err) {
+      console.error('Erro no scan sob demanda:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
   }
 
   // API JSON — aceita sessão OU token de API
