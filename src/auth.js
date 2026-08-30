@@ -128,6 +128,52 @@ function verifyEnrollmentToken(token, secret) {
 }
 
 /**
+ * Cria um token de MFA pendente: assina (username + validade) com HMAC usando o session-secret.
+ * Emitido após a validação bem-sucedida de usuário/senha (1ª etapa), transporta a identidade do
+ * usuário até a confirmação do código TOTP (2ª etapa), SEM criar sessão antes de o código conferir.
+ * Formato: base64url(payload).assinaturaHMAC
+ * @param {string} username
+ * @param {string} secret segredo HMAC (session-secret)
+ * @param {number} [ttlSeconds=300] validade do desafio de MFA (default 5 min)
+ * @returns {string}
+ */
+function createMfaToken(username, secret, ttlSeconds = 300) {
+  const payload = {
+    u: username,
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    k: 'mfa',
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+/**
+ * Valida um token de MFA pendente. Retorna { username } se válido e não expirado, senão null.
+ * @param {string} token
+ * @param {string} secret segredo HMAC (session-secret)
+ * @returns {{username: string}|null}
+ */
+function verifyMfaToken(token, secret) {
+  if (!token || !token.includes('.')) return null;
+  const [body, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (payload.k !== 'mfa') return null;
+  if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  if (!payload.u) return null;
+  return { username: payload.u };
+}
+
+/**
  * Extrai o valor de um cookie a partir do header Cookie.
  * @param {string|undefined} cookieHeader
  * @param {string} name
@@ -199,6 +245,8 @@ module.exports = {
   verifySession,
   createEnrollmentToken,
   verifyEnrollmentToken,
+  createMfaToken,
+  verifyMfaToken,
   readCookie,
   buildSessionCookie,
   buildLogoutCookie,
