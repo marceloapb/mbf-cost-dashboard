@@ -42,30 +42,46 @@ function extractAddress(from) {
 }
 
 /**
- * Decide se um e-mail deve ser processado.
- * Se `customSenders` for uma lista não vazia, usa EXCLUSIVAMENTE ela (substitui o padrão AWS):
- * o e-mail é aceito se o endereço do remetente contiver qualquer um dos termos informados
- * (ex.: "@amazonaws.com", "aws-marketing@amazon.com", "billing@").
- * Se `customSenders` for vazio/ausente, aplica a heurística padrão de remetentes AWS.
+ * Decide se um e-mail deve ser coletado.
+ *
+ * Regra:
+ * - Se houver `senders` e/ou `keywords` configurados, o e-mail é aceito quando
+ *   o REMETENTE casa com algum `senders` (substring) OU o ASSUNTO contém alguma `keywords`.
+ * - Se AMBOS estiverem vazios, aplica a detecção padrão de e-mails da AWS.
+ *
  * @param {{from?: string, subject?: string}} email
- * @param {string[]} [customSenders] lista de remetentes/domínios (minúsculas) a monitorar
+ * @param {{senders?: string[], keywords?: string[]}|string[]} [opts]
+ *        aceita objeto {senders,keywords} ou (retrocompat) um array = senders
  * @returns {boolean}
  */
-function isAwsEmail(email, customSenders) {
+function isAwsEmail(email, opts) {
   const addr = extractAddress(email && email.from);
+  const subject = ((email && email.subject) || '').toLowerCase();
 
-  // Modo personalizado: substitui a lista padrão.
-  if (Array.isArray(customSenders) && customSenders.length) {
-    if (!addr) return false;
-    return customSenders.some((term) => term && addr.includes(String(term).toLowerCase()));
+  // Retrocompatibilidade: se vier um array, trata como lista de senders.
+  let senders = [];
+  let keywords = [];
+  if (Array.isArray(opts)) {
+    senders = opts;
+  } else if (opts && typeof opts === 'object') {
+    senders = Array.isArray(opts.senders) ? opts.senders : [];
+    keywords = Array.isArray(opts.keywords) ? opts.keywords : [];
+  }
+
+  const hasCustom = senders.length > 0 || keywords.length > 0;
+
+  if (hasCustom) {
+    const senderMatch =
+      addr && senders.some((t) => t && addr.includes(String(t).toLowerCase()));
+    const subjectMatch =
+      subject && keywords.some((k) => k && subject.includes(String(k).toLowerCase()));
+    return Boolean(senderMatch || subjectMatch);
   }
 
   // Modo padrão (AWS).
   if (addr && AWS_SENDER_PATTERNS.some((re) => re.test(addr))) return true;
-  // Fallback: remetente não bateu, mas o assunto sugere fortemente AWS
-  // E o domínio contém "amazon" ou "aws".
-  const subject = (email && email.subject) || '';
-  if (/amazon|aws/i.test(addr) && AWS_SUBJECT_HINTS.some((re) => re.test(subject))) {
+  const subjRaw = (email && email.subject) || '';
+  if (/amazon|aws/i.test(addr) && AWS_SUBJECT_HINTS.some((re) => re.test(subjRaw))) {
     return true;
   }
   return false;

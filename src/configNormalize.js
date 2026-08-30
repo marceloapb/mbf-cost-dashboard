@@ -46,6 +46,18 @@ function normalize(raw) {
     new Set(senders.map((s) => String(s).trim().toLowerCase()).filter(Boolean))
   ).slice(0, 50);
 
+  // Palavras-chave no assunto. Vazio => não usa. Aceita array ou string.
+  let keywords = [];
+  const rawKw = raw.subjectKeywords;
+  if (Array.isArray(rawKw)) {
+    keywords = rawKw;
+  } else if (typeof rawKw === 'string') {
+    keywords = rawKw.split(/[\n,;]+/);
+  }
+  const subjectKeywords = Array.from(
+    new Set(keywords.map((s) => String(s).trim().toLowerCase()).filter(Boolean))
+  ).slice(0, 50);
+
   const scanLimit = clampInt(raw.scanLimit, 100, 1, 1000);
   const scanWindowDays = clampInt(raw.scanWindowDays, 0, 0, 3650);
   const scanIntervalHours = clampInt(raw.scanIntervalHours, 1, 1, 24);
@@ -54,7 +66,7 @@ function normalize(raw) {
     ? raw.bedrockModelId
     : DEFAULT_MODEL;
 
-  return { host, port, mailboxes, senders, scanLimit, scanWindowDays, scanIntervalHours, bedrockModelId };
+  return { host, port, mailboxes, senders, subjectKeywords, scanLimit, scanWindowDays, scanIntervalHours, bedrockModelId };
 }
 
 /**
@@ -67,6 +79,7 @@ function redactConfig(cfg) {
     port: cfg.port,
     mailboxes: (cfg.mailboxes || []).map((m) => ({ user: m.user, hasPassword: Boolean(m.password) })),
     senders: cfg.senders || [],
+    subjectKeywords: cfg.subjectKeywords || [],
     scanLimit: cfg.scanLimit,
     scanWindowDays: cfg.scanWindowDays,
     scanIntervalHours: cfg.scanIntervalHours,

@@ -2,13 +2,13 @@
 
 const { loadImapConfig } = require('./emailConfig');
 const { fetchAllAwsEmails } = require('./imapClient');
-const { summarizeEmail } = require('./aiSummarizer');
 const store = require('./emailStore');
 
 /**
- * Executa o pipeline completo: lê as caixas IMAP configuradas, filtra e-mails da AWS,
- * pula os já processados (dedupe), analisa com IA e persiste.
- * @param {{sinceDays?:number, max?:number}} [opts]
+ * Coleta (SEM IA): lê as caixas IMAP, filtra por remetente OU palavra-chave de assunto,
+ * e grava os e-mails novos com status "pendente" (analyzed=false), guardando o corpo
+ * para análise posterior sob demanda. NÃO chama o Bedrock.
+ * @param {{max?:number}} [opts]
  * @returns {Promise<{scanned:number, novos:number, erros:Array}>}
  */
 async function runScan(opts = {}) {
@@ -18,24 +18,11 @@ async function runScan(opts = {}) {
   }
   const { emails, errors } = await fetchAllAwsEmails(config, opts);
   let novos = 0;
-  let analisados = 0;
   const erros = [...errors];
-  const limite = config.scanLimit || 100;
-  const modelId = config.bedrockModelId;
 
   for (const mail of emails) {
     try {
       if (await store.exists(mail.messageId)) continue;
-      // Teto de segurança: só chama a IA até `limite` e-mails NOVOS por scan.
-      if (analisados >= limite) {
-        erros.push({ info: `limite de ${limite} por scan atingido; rode novamente para continuar` });
-        break;
-      }
-      analisados += 1;
-      const analysis = await summarizeEmail(
-        { subject: mail.subject, from: mail.from, text: mail.text },
-        modelId
-      );
       const record = {
         messageId: mail.messageId,
         mailbox: mail.mailbox,
@@ -43,13 +30,10 @@ async function runScan(opts = {}) {
         fromAddress: mail.fromAddress,
         subjectOriginal: mail.subject,
         date: mail.date,
-        processedAt: new Date().toISOString(),
+        collectedAt: new Date().toISOString(),
         read: false,
-        assuntoPt: analysis.assuntoPt,
-        resumo: analysis.resumo,
-        acoes: analysis.acoes,
-        urgencia: analysis.urgencia,
-        prazo: analysis.prazo,
+        analyzed: false, // ainda não passou pela IA
+        body: (mail.text || '').slice(0, 20000), // guardado para análise sob demanda
       };
       const gravou = await store.putIfNew(record);
       if (gravou) novos += 1;

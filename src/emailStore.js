@@ -76,4 +76,40 @@ async function markRead(messageId) {
   );
 }
 
-module.exports = { exists, putIfNew, list, markRead, TABLE };
+/**
+ * Busca um e-mail pelo messageId (item completo, inclui o body).
+ * @param {string} messageId
+ * @returns {Promise<object|null>}
+ */
+async function getById(messageId) {
+  const res = await ddb.send(new GetCommand({ TableName: TABLE, Key: { messageId } }));
+  return res.Item || null;
+}
+
+/**
+ * Grava o resultado da análise da IA num e-mail já coletado.
+ * @param {string} messageId
+ * @param {{assuntoPt:string, resumo:string, acoes:string[], urgencia:string, prazo:string}} analysis
+ * @returns {Promise<void>}
+ */
+async function updateAnalysis(messageId, analysis) {
+  await ddb.send(
+    new UpdateCommand({
+      TableName: TABLE,
+      Key: { messageId },
+      UpdateExpression:
+        'SET analyzed = :a, assuntoPt = :s, resumo = :r, acoes = :ac, urgencia = :u, prazo = :p, analyzedAt = :t',
+      ExpressionAttributeValues: {
+        ':a': true,
+        ':s': analysis.assuntoPt || '',
+        ':r': analysis.resumo || '',
+        ':ac': Array.isArray(analysis.acoes) ? analysis.acoes : [],
+        ':u': analysis.urgencia || 'informativo',
+        ':p': analysis.prazo || '',
+        ':t': new Date().toISOString(),
+      },
+    })
+  );
+}
+
+module.exports = { exists, putIfNew, list, markRead, getById, updateAnalysis, TABLE };

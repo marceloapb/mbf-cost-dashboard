@@ -228,6 +228,10 @@ function renderEmails(p) {
     .detail { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); display:none; }
     .detail.open { display:block; }
     .detail h4 { margin:10px 0 4px; font-size:13px; color:var(--mut); }
+    .analysis { margin-top:12px; padding-top:12px; border-top:1px solid var(--line); }
+    .analysis h4 { margin:10px 0 4px; font-size:13px; color:var(--mut); }
+    .actions { margin-top:12px; display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
+    .aihint { color:var(--mut); font-size:12px; }
     .acoes { margin:4px 0 0; padding-left:18px; }
     .empty { max-width:960px; margin:0 auto; color:var(--mut); text-align:center; padding:40px; }
   </style>
@@ -238,7 +242,8 @@ function renderEmails(p) {
     <div><a href=".">← Painel</a> · <a href="config">⚙️ Configurações</a> · <a href="logout">Sair</a></div>
   </header>
   <div class="toolbar">
-    <button id="scanBtn">🔄 Verificar agora</button>
+    <button id="scanBtn">🔄 Buscar e-mails</button>
+    <button id="analyzeAllBtn">🤖 Analisar todos pendentes</button>
     <span class="hint" id="scanHint">Usuário: ${user}</span>
   </div>
   <div id="listArea"><div class="empty">Carregando…</div></div>
@@ -251,25 +256,44 @@ function renderEmails(p) {
       function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
       function badge(u){ u = u || 'informativo'; return '<span class="badge u-'+esc(u)+'">'+esc(u.toUpperCase())+'</span>'; }
       function render(items){
-        if(!items || !items.length){ listArea.innerHTML = '<div class="empty">Nenhum e-mail da AWS processado ainda. Configure o IMAP e clique em Verificar agora.</div>'; return; }
+        if(!items || !items.length){ listArea.innerHTML = '<div class="empty">Nenhum e-mail coletado ainda. Configure em ⚙️ Configurações e clique em Buscar e-mails.</div>'; return; }
         listArea.innerHTML = items.map(function(it, i){
-          var acoes = (it.acoes && it.acoes.length)
-            ? '<h4>Ações</h4><ul class="acoes">'+it.acoes.map(function(a){return '<li>'+esc(a)+'</li>';}).join('')+'</ul>'
-            : '<h4>Ações</h4><div class="hint">Nenhuma ação necessária.</div>';
-          var prazo = it.prazo ? '<h4>Prazo</h4><div>'+esc(it.prazo)+'</div>' : '';
-          return '<div class="card">'
-            + '<div class="row" data-i="'+i+'"><div><div class="subj">'+esc(it.assuntoPt || it.subjectOriginal)+'</div>'
+          var analyzed = !!it.analyzed;
+          var btnLabel = analyzed ? '🤖 Analisar de novo' : '🤖 Analisar com IA';
+          var head = '<div class="row"><div><div class="subj">'+esc(it.subjectOriginal)+'</div>'
             + '<div class="meta">'+esc(it.fromAddress || it.from)+' · '+esc((it.date||"").slice(0,10))+' · '+esc(it.mailbox||"")+'</div></div>'
-            + badge(it.urgencia)+'</div>'
-            + '<div class="detail" id="d'+i+'">'
-            + '<h4>Resumo</h4><div>'+esc(it.resumo)+'</div>'
-            + acoes + prazo
-            + '<h4>Assunto original</h4><div class="hint">'+esc(it.subjectOriginal)+'</div>'
-            + '</div></div>';
+            + (analyzed ? badge(it.urgencia) : '<span class="badge u-informativo">PENDENTE</span>')+'</div>';
+          var analysisHtml = '';
+          if (analyzed) {
+            var acoes = (it.acoes && it.acoes.length)
+              ? '<h4>Ações</h4><ul class="acoes">'+it.acoes.map(function(a){return '<li>'+esc(a)+'</li>';}).join('')+'</ul>'
+              : '<h4>Ações</h4><div class="hint">Nenhuma ação necessária.</div>';
+            var prazo = it.prazo ? '<h4>Prazo</h4><div>'+esc(it.prazo)+'</div>' : '';
+            analysisHtml = '<div class="analysis">'
+              + (it.assuntoPt ? '<h4>Assunto (PT)</h4><div>'+esc(it.assuntoPt)+'</div>' : '')
+              + '<h4>Resumo</h4><div>'+esc(it.resumo)+'</div>' + acoes + prazo + '</div>';
+          }
+          return '<div class="card">'
+            + head
+            + analysisHtml
+            + '<div class="actions"><button class="analyzeBtn" data-id="'+esc(it.messageId)+'" data-i="'+i+'">'+btnLabel+'</button>'
+            + '<span class="hint aihint" id="ai'+i+'"></span></div>'
+            + '</div>';
         }).join('');
-        listArea.querySelectorAll('.row').forEach(function(r){
-          r.addEventListener('click', function(){ var d = document.getElementById('d'+r.getAttribute('data-i')); if(d) d.classList.toggle('open'); });
+        listArea.querySelectorAll('.analyzeBtn').forEach(function(b){
+          b.addEventListener('click', function(){ analyzeOne(b.getAttribute('data-id'), b.getAttribute('data-i'), b); });
         });
+      }
+      function analyzeOne(id, i, btn){
+        var hint = document.getElementById('ai'+i);
+        btn.disabled = true; if(hint) hint.textContent = 'Analisando com IA…';
+        fetch('api/emails/analyze', { method:'POST', credentials:'same-origin', headers:{'Content-Type':'application/x-www-form-urlencoded'}, body:'id='+encodeURIComponent(id) })
+          .then(function(r){ return r.json(); })
+          .then(function(d){
+            if (d && d.ok) { load(); }
+            else { if(hint) hint.textContent = (d && d.error) ? d.error : 'Falha na análise.'; btn.disabled = false; }
+          })
+          .catch(function(e){ if(hint) hint.textContent = 'Erro: '+esc(e.message); btn.disabled = false; });
       }
       function load(){
         fetch('api/emails', { credentials:'same-origin' })
@@ -278,20 +302,33 @@ function renderEmails(p) {
           .catch(function(e){ listArea.innerHTML = '<div class="empty">Erro ao carregar: '+esc(e.message)+'</div>'; });
       }
       scanBtn.addEventListener('click', function(){
-        scanBtn.disabled = true; scanHint.textContent = 'Verificação iniciada em segundo plano… atualizando a lista.';
+        scanBtn.disabled = true; scanHint.textContent = 'Buscando e-mails em segundo plano… atualizando a lista.';
         fetch('api/emails/scan', { method:'POST', credentials:'same-origin' })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
           .then(function(){
-            // Processamento roda em background; recarrega a lista algumas vezes.
             var tries = 0;
             var timer = setInterval(function(){
-              tries++;
-              load();
-              if (tries >= 6) { clearInterval(timer); scanBtn.disabled = false; scanHint.textContent = 'Lista atualizada. Se faltar algo, verifique novamente em instantes.'; }
-              else { scanHint.textContent = 'Processando em segundo plano… (' + tries + ')'; }
-            }, 5000);
+              tries++; load();
+              if (tries >= 6) { clearInterval(timer); scanBtn.disabled = false; scanHint.textContent = 'Lista atualizada.'; }
+              else { scanHint.textContent = 'Buscando em segundo plano… (' + tries + ')'; }
+            }, 4000);
           })
           .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); scanBtn.disabled = false; });
+      });
+      var analyzeAllBtn = document.getElementById('analyzeAllBtn');
+      analyzeAllBtn.addEventListener('click', function(){
+        analyzeAllBtn.disabled = true; scanHint.textContent = 'Análise de todos os pendentes iniciada em segundo plano…';
+        fetch('api/emails/analyze-all', { method:'POST', credentials:'same-origin' })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(){
+            var tries = 0;
+            var timer = setInterval(function(){
+              tries++; load();
+              if (tries >= 8) { clearInterval(timer); analyzeAllBtn.disabled = false; scanHint.textContent = 'Análise concluída (ou em andamento). Recarregue se faltar algo.'; }
+              else { scanHint.textContent = 'Analisando pendentes com IA… (' + tries + ')'; }
+            }, 5000);
+          })
+          .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); analyzeAllBtn.disabled = false; });
       });
       load();
     })();
@@ -380,6 +417,9 @@ function renderConfig(p, error, ok) {
       <h2>Remetentes monitorados</h2>
       <div class="sub">Um por linha. Se preencher, monitora exatamente esses remetentes/domínios (basta parte do endereço). Vazio = detecção automática da AWS.</div>
       <textarea name="senders" rows="4" placeholder="@amazonaws.com&#10;aws-marketing@amazon.com&#10;no-reply@aws.amazon.com">${esc((cfg.senders || []).join('\n'))}</textarea>
+      <label>Palavras-chave no assunto</label>
+      <div class="sub">Um por linha. O e-mail é coletado se o REMETENTE casar OU o ASSUNTO contiver alguma destas palavras.</div>
+      <textarea name="subjectKeywords" rows="3" placeholder="fatura&#10;security&#10;deprecat&#10;EC2">${esc((cfg.subjectKeywords || []).join('\n'))}</textarea>
     </div>
 
     <div class="card">

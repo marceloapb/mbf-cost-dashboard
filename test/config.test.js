@@ -46,6 +46,13 @@ test('normalize: senders string vira lista unica minuscula', () => {
   assert.deepStrictEqual(c.senders, ['@aws.com', 'billing@amazon.com']);
 });
 
+test('normalize: subjectKeywords string vira lista unica minuscula', () => {
+  const c = normalize({ subjectKeywords: 'Fatura\nSECURITY; fatura' });
+  assert.deepStrictEqual(c.subjectKeywords, ['fatura', 'security']);
+  // default vazio
+  assert.deepStrictEqual(normalize({}).subjectKeywords, []);
+});
+
 test('normalize: mailboxes filtra invalidos e preserva senha', () => {
   const c = normalize({ mailboxes: [{ user: 'a@b.com', password: 'x' }, { user: 'semarroba' }, { user: 'c@d.com' }] });
   assert.strictEqual(c.mailboxes.length, 2);

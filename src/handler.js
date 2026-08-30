@@ -213,6 +213,43 @@ async function buildServiceUsageDetail(accountId, serviceName, monthLabel) {
   };
 }
 
+/** Traduz erros comuns da IA (Bedrock) para mensagem amigável. */
+function friendlyAiError(err) {
+  const msg = String((err && err.message) || err || '');
+  if (/AccessDenied|not authorized|Marketplace|Subscribe|agreement|don't have access|access to the model/i.test(msg)) {
+    return 'O modelo de IA ainda não está habilitado nesta conta. Ative o Claude no console do Amazon Bedrock → Model access (região us-east-1) e tente novamente.';
+  }
+  if (/throttl|too many|rate/i.test(msg)) {
+    return 'Muitas solicitações à IA agora. Aguarde alguns segundos e tente de novo.';
+  }
+  return 'Não foi possível analisar com a IA agora: ' + msg.slice(0, 200);
+}
+
+/** Analisa (IA) todos os e-mails pendentes (analyzed=false). Usado no fluxo assíncrono. */
+async function analyzePending() {
+  const { summarizeEmail } = require('./aiSummarizer');
+  const cfg = await loadImapConfig();
+  const items = await emailStore.list(500);
+  const pendentes = items.filter((it) => !it.analyzed);
+  let analisados = 0;
+  const erros = [];
+  for (const it of pendentes) {
+    try {
+      const analysis = await summarizeEmail(
+        { subject: it.subjectOriginal, from: it.from, text: it.body || '' },
+        cfg.bedrockModelId
+      );
+      await emailStore.updateAnalysis(it.messageId, analysis);
+      analisados += 1;
+    } catch (err) {
+      erros.push({ messageId: it.messageId, error: friendlyAiError(err) });
+      // Se for erro de acesso ao modelo, não adianta continuar.
+      if (/Bedrock|habilitado/i.test(friendlyAiError(err))) break;
+    }
+  }
+  return { pendentes: pendentes.length, analisados, erros };
+}
+
 exports.handler = async (event) => {
   // Evento agendado (EventBridge) → roda o scan de e-mails e encerra (sem HTTP).
   if (event && event.source === 'scheduled-scan') {
@@ -222,6 +259,17 @@ exports.handler = async (event) => {
       return result;
     } catch (err) {
       console.error('Erro no scan agendado:', err);
+      return { error: err.message };
+    }
+  }
+  // Evento assíncrono → analisa todos os pendentes com IA (disparado por analyze-all).
+  if (event && event.source === 'analyze-all') {
+    try {
+      const result = await analyzePending();
+      console.log('Analyze-all:', JSON.stringify(result));
+      return result;
+    } catch (err) {
+      console.error('Erro no analyze-all:', err);
       return { error: err.message };
     }
   }
@@ -423,6 +471,7 @@ exports.handler = async (event) => {
       port: Number(b.port) || 993,
       mailboxes,
       senders: b.senders || '',
+      subjectKeywords: b.subjectKeywords || '',
       scanLimit: b.scanLimit,
       scanWindowDays: b.scanWindowDays,
       scanIntervalHours: b.scanIntervalHours,
@@ -486,6 +535,54 @@ exports.handler = async (event) => {
       return json(200, await runScan());
     } catch (err) {
       console.error('Erro ao iniciar scan:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
+
+  // Analisar UM e-mail com IA (sob demanda). Síncrono (1 chamada ao Bedrock).
+  if (path === '/api/emails/analyze' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    const b = parseBody(event);
+    const id = b.id || event.queryStringParameters?.id;
+    if (!id) return json(400, { error: 'missing_id' });
+    try {
+      const item = await emailStore.getById(id);
+      if (!item) return json(404, { error: 'not_found' });
+      const { summarizeEmail } = require('./aiSummarizer');
+      const cfg = await loadImapConfig();
+      const analysis = await summarizeEmail(
+        { subject: item.subjectOriginal, from: item.from, text: item.body || '' },
+        cfg.bedrockModelId
+      );
+      await emailStore.updateAnalysis(id, analysis);
+      return json(200, { ok: true, analysis });
+    } catch (err) {
+      console.error('Erro ao analisar e-mail:', err);
+      return json(200, { ok: false, error: friendlyAiError(err) });
+    }
+  }
+  // Analisar TODOS os pendentes — assíncrono (evita timeout do API Gateway).
+  if (path === '/api/emails/analyze-all' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    try {
+      const fn = process.env.SELF_FUNCTION_NAME;
+      if (fn) {
+        const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+        const lambda = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+        await lambda.send(
+          new InvokeCommand({
+            FunctionName: fn,
+            InvocationType: 'Event',
+            Payload: Buffer.from(JSON.stringify({ source: 'analyze-all' })),
+          })
+        );
+        return json(202, { started: true, message: 'Análise de todos os pendentes iniciada.' });
+      }
+      return json(200, await analyzePending());
+    } catch (err) {
+      console.error('Erro ao iniciar analise-all:', err);
       return json(500, { error: 'internal_error', message: err.message });
     }
   }

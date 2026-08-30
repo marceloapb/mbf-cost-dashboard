@@ -30,16 +30,30 @@ test('isAwsEmail: fallback por assunto quando domínio contém amazon/aws', () =
   assert.strictEqual(isAwsEmail({ from: 'x@outro.com', subject: 'AWS EC2 news' }), false);
 });
 
-test('isAwsEmail: remetentes personalizados substituem o padrão', () => {
-  const senders = ['@bloise.com.br', 'faturas@fornecedor.com'];
-  // bate na lista custom
-  assert.ok(isAwsEmail({ from: 'Marcelo <marcelo@bloise.com.br>', subject: 'x' }, senders));
-  assert.ok(isAwsEmail({ from: 'faturas@fornecedor.com', subject: 'Boleto' }, senders));
-  // remetente AWS NÃO entra quando há lista custom que não o inclui
-  assert.strictEqual(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, senders), false);
+test('isAwsEmail: remetentes personalizados (objeto) casam por substring', () => {
+  const opts = { senders: ['@bloise.com.br', 'faturas@fornecedor.com'], keywords: [] };
+  assert.ok(isAwsEmail({ from: 'Marcelo <marcelo@bloise.com.br>', subject: 'x' }, opts));
+  assert.ok(isAwsEmail({ from: 'faturas@fornecedor.com', subject: 'Boleto' }, opts));
+  // remetente AWS NÃO entra quando há lista custom que não o inclui e assunto não casa
+  assert.strictEqual(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, opts), false);
 });
 
-test('isAwsEmail: lista custom vazia cai no padrão AWS', () => {
-  assert.ok(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, []));
-  assert.strictEqual(isAwsEmail({ from: 'x@outro.com', subject: 'y' }, []), false);
+test('isAwsEmail: palavra-chave no assunto casa (regra OU)', () => {
+  const opts = { senders: ['@amazonaws.com'], keywords: ['fatura', 'security'] };
+  // casa por assunto mesmo com remetente qualquer
+  assert.ok(isAwsEmail({ from: 'qualquer@x.com', subject: 'Sua FATURA chegou' }, opts));
+  assert.ok(isAwsEmail({ from: 'z@y.com', subject: 'Security alert' }, opts));
+  // casa por remetente mesmo sem keyword no assunto
+  assert.ok(isAwsEmail({ from: 'billing@amazonaws.com', subject: 'algo' }, opts));
+  // não casa nem remetente nem assunto
+  assert.strictEqual(isAwsEmail({ from: 'z@y.com', subject: 'nada aqui' }, opts), false);
+});
+
+test('isAwsEmail: retrocompat com array = senders', () => {
+  assert.ok(isAwsEmail({ from: 'marcelo@bloise.com.br', subject: 'x' }, ['@bloise.com.br']));
+});
+
+test('isAwsEmail: sem custom (objeto vazio) cai no padrão AWS', () => {
+  assert.ok(isAwsEmail({ from: 'no-reply@aws.amazon.com', subject: 'x' }, { senders: [], keywords: [] }));
+  assert.strictEqual(isAwsEmail({ from: 'x@outro.com', subject: 'y' }, { senders: [], keywords: [] }), false);
 });

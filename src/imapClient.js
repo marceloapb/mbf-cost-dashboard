@@ -16,6 +16,7 @@ async function fetchAwsEmailsFromBox(box, opts = {}) {
   const max = opts.max || 500;
   const windowDays = Number(opts.windowDays) || 0; // 0 = caixa toda
   const senders = opts.senders;
+  const keywords = opts.keywords;
   const client = new ImapFlow({
     host: box.host,
     port: box.port || 993,
@@ -53,7 +54,7 @@ async function fetchAwsEmailsFromBox(box, opts = {}) {
           const parsed = await simpleParser(msg.source);
           const from = parsed.from?.text || '';
           const subject = parsed.subject || '';
-          if (!isAwsEmail({ from, subject }, senders)) continue;
+          if (!isAwsEmail({ from, subject }, { senders, keywords })) continue;
           const messageId =
             (parsed.messageId || '').trim() ||
             `${box.user}:${msg.uid || msg.seq}`;
@@ -97,6 +98,7 @@ async function fetchAllAwsEmails(config, opts = {}) {
       const found = await fetchAwsEmailsFromBox(box, {
         ...opts,
         senders: config.senders,
+        keywords: config.subjectKeywords,
         windowDays: config.scanWindowDays,
         max: config.scanLimit || opts.max,
       });
