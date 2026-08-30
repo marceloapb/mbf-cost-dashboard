@@ -6,10 +6,6 @@ Parameters:
   Stage:
     Type: String
     Default: prod
-  AccessToken:
-    Type: String
-    NoEcho: true
-    Description: Token simples para acessar o painel (via header x-access-token ou ?token=)
   MarginMap:
     Type: String
     Default: '{"default":1.0}'
@@ -49,7 +45,6 @@ Resources:
       Environment:
         Variables:
           STAGE: !Ref Stage
-          ACCESS_TOKEN: !Ref AccessToken
           MARGIN_MAP: !Ref MarginMap
           SSM_PREFIX: !Sub '/mbf/${Stage}/cost-dashboard'
       Policies:

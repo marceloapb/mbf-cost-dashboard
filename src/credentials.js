@@ -39,6 +39,7 @@ async function loadCredentials() {
     passwordHash: map['password-hash'] || '',
     sessionSecret: map['session-secret'] || '',
     totpSecret: map['totp-secret'] || '',
+    accessToken: map['access-token'] || '',
   };
   cacheAt = now;
   return cache;

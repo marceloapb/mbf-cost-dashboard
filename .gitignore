@@ -15,3 +15,9 @@ npm-debug.log*
 
 # OS
 .DS_Store
+
+# Arquivos temporários de deploy manual (podem conter valores sensíveis)
+deploy-params.yaml
+cookies.txt
+_s.txt
+_e.txt

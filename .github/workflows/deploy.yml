@@ -1,0 +1,78 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# OIDC: sem chaves estáticas
+permissions:
+  id-token: write
+  contents: read
+
+concurrency:
+  group: deploy-cost-dashboard
+  cancel-in-progress: false
+
+env:
+  AWS_REGION: us-east-1
+  STACK_NAME: mbf-cost-dashboard
+  SAM_BUCKET: mbf-sam-deploy-us-east-1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Instalar dependências
+        run: npm ci || npm install
+      - name: Rodar testes
+        run: node --test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Configurar credenciais AWS via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: arn:aws:iam::975877354440:role/mbf-cost-dashboard-github-deploy
+          aws-region: ${{ env.AWS_REGION }}
+      - name: Setup SAM CLI
+        uses: aws-actions/setup-sam@v2
+        with:
+          use-installer: true
+      - name: SAM build
+        run: sam build
+      - name: SAM deploy
+        run: >-
+          sam deploy
+          --stack-name "$STACK_NAME"
+          --region "$AWS_REGION"
+          --s3-bucket "$SAM_BUCKET"
+          --capabilities CAPABILITY_IAM
+          --no-confirm-changeset
+          --no-fail-on-empty-changeset
+          --parameter-overrides file://.deploy/params.yaml
+
+  smoke-test:
+    needs: deploy
+    runs-on: ubuntu-latest
+    steps:
+      - name: Smoke test — /health e /login
+        run: |
+          BASE="https://sx35x2e9pd.execute-api.us-east-1.amazonaws.com/prod"
+          echo "health:"
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/health")
+          echo "  HTTP $code"; [ "$code" = "200" ] || exit 1
+          echo "login:"
+          code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/login")
+          echo "  HTTP $code"; [ "$code" = "200" ] || exit 1
+          echo "Smoke test OK"

@@ -5,9 +5,8 @@ region = "us-east-1"
 confirm_changeset = false
 capabilities = "CAPABILITY_IAM"
 s3_bucket = "mbf-sam-deploy-us-east-1"
-# Use lista para preservar o JSON de MarginMap sem o shell cortar aspas/espacos.
-# Substitua <ACCESS_TOKEN> pelo token real antes do deploy (NAO comitar o token).
+# MarginMap em lista para preservar o JSON sem o shell cortar aspas/espacos.
+# O token de acesso NAO e mais parametro: vive em SSM (/mbf/prod/cost-dashboard/access-token).
 parameter_overrides = [
-    "AccessToken=<ACCESS_TOKEN>",
     "MarginMap={\"532404260870\":1.5,\"default\":1.0}",
 ]

@@ -82,12 +82,21 @@ async function sessionUser(event) {
   return verifySession(token, creds.sessionSecret);
 }
 
-/** Auth por token na API (header x-access-token ou ?token=). */
-function apiTokenOk(event) {
-  if (!API_TOKEN) return false;
+/** Auth por token na API (header x-access-token ou ?token=). Token vem do SSM (fallback env). */
+async function apiTokenOk(event) {
   const h = event.headers || {};
-  const t = h['x-access-token'] || h['X-Access-Token'] || event.queryStringParameters?.token;
-  return t === API_TOKEN;
+  const provided = h['x-access-token'] || h['X-Access-Token'] || event.queryStringParameters?.token;
+  if (!provided) return false;
+  let expected = '';
+  try {
+    const creds = await loadCredentials();
+    expected = creds.accessToken || '';
+  } catch (err) {
+    console.error('Erro ao carregar access-token do SSM:', err);
+  }
+  if (!expected) expected = API_TOKEN || ''; // fallback para env (compatibilidade)
+  if (!expected) return false;
+  return provided === expected;
 }
 
 async function buildCostPayload() {
@@ -223,7 +232,7 @@ exports.handler = async (event) => {
   // API JSON — aceita sessão OU token de API
   if (path === '/api/costs') {
     const user = await sessionUser(event);
-    if (!user && !apiTokenOk(event)) {
+    if (!user && !(await apiTokenOk(event))) {
       return json(401, { error: 'unauthorized' });
     }
     try {
