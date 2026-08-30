@@ -13,7 +13,8 @@ const TTL_MS = 60 * 1000;
 /**
  * Carrega credenciais do SSM sob o prefixo configurado.
  * Espera: <prefix>/username, <prefix>/password-hash, <prefix>/session-secret
- * @returns {Promise<{username: string, passwordHash: string, sessionSecret: string}>}
+ * Opcional: <prefix>/totp-secret (Base32) — se presente, o MFA TOTP é exigido no login.
+ * @returns {Promise<{username: string, passwordHash: string, sessionSecret: string, totpSecret: string}>}
  */
 async function loadCredentials() {
   const now = Date.now();
@@ -37,6 +38,7 @@ async function loadCredentials() {
     username: map['username'] || '',
     passwordHash: map['password-hash'] || '',
     sessionSecret: map['session-secret'] || '',
+    totpSecret: map['totp-secret'] || '',
   };
   cacheAt = now;
   return cache;

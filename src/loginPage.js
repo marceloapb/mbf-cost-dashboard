@@ -4,10 +4,17 @@
  * Página de login (HTML). Faz POST para /login e, em caso de sucesso,
  * o servidor devolve o cookie de sessão e redireciona.
  * @param {string} [error] mensagem de erro opcional
+ * @param {boolean} [mfa=false] se true, mostra o campo de código MFA (TOTP)
  */
-function renderLogin(error) {
+function renderLogin(error, mfa = false) {
   const errBox = error
     ? `<div class="err">${String(error).replace(/</g, '&lt;')}</div>`
+    : '';
+  const mfaField = mfa
+    ? `
+    <label for="c">Código de verificação</label>
+    <input id="c" name="code" inputmode="numeric" autocomplete="one-time-code"
+           pattern="[0-9]*" maxlength="6" placeholder="000000">`
     : '';
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -36,12 +43,12 @@ function renderLogin(error) {
 <body>
   <form class="card" method="POST" action="login">
     <h1>Painel de Custos MBF</h1>
-    <div class="sub">Entre com seu usuário e senha</div>
+    <div class="sub">Entre com seu usuário e senha${mfa ? ' e o código do app autenticador' : ''}</div>
     ${errBox}
     <label for="u">Usuário</label>
     <input id="u" name="username" autocomplete="username" autofocus required>
     <label for="p">Senha</label>
-    <input id="p" name="password" type="password" autocomplete="current-password" required>
+    <input id="p" name="password" type="password" autocomplete="current-password" required>${mfaField}
     <button type="submit">Entrar</button>
   </form>
 </body>

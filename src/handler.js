@@ -5,6 +5,7 @@ const { parseMarginMap, applyMargins } = require('./margin');
 const { renderDashboard } = require('./dashboard');
 const { renderLogin } = require('./loginPage');
 const { loadCredentials } = require('./credentials');
+const totp = require('./totp');
 const {
   verifyPassword,
   createSession,
@@ -63,8 +64,16 @@ function parseBody(event) {
 
 /** Sessão válida? retorna username ou null. */
 async function sessionUser(event) {
-  const cookieHeader = event.headers?.cookie || event.headers?.Cookie;
-  const token = readCookie(cookieHeader, COOKIE_NAME);
+  // API Gateway HTTP API (payload v2) entrega cookies em event.cookies (array).
+  // REST API / outros entregam no header Cookie. Suporta ambos.
+  let token;
+  if (Array.isArray(event.cookies)) {
+    token = readCookie(event.cookies.join('; '), COOKIE_NAME);
+  }
+  if (!token) {
+    const cookieHeader = event.headers?.cookie || event.headers?.Cookie;
+    token = readCookie(cookieHeader, COOKIE_NAME);
+  }
   if (!token) return null;
   const creds = await loadCredentials();
   if (!creds.sessionSecret) return null;
@@ -115,10 +124,17 @@ exports.handler = async (event) => {
 
   // Login
   if (path === '/login' && method === 'GET') {
-    return html(200, renderLogin());
+    let mfaEnabled = false;
+    try {
+      const creds = await loadCredentials();
+      mfaEnabled = Boolean(creds.totpSecret);
+    } catch (err) {
+      console.error('Erro ao carregar credenciais (GET /login):', err);
+    }
+    return html(200, renderLogin(undefined, mfaEnabled));
   }
   if (path === '/login' && method === 'POST') {
-    const { username, password } = parseBody(event);
+    const { username, password, code } = parseBody(event);
     let creds;
     try {
       creds = await loadCredentials();
@@ -126,13 +142,19 @@ exports.handler = async (event) => {
       console.error('Erro ao carregar credenciais:', err);
       return html(500, renderLogin('Erro interno de configuração.'));
     }
+    const mfaEnabled = Boolean(creds.totpSecret);
+    // Valida usuário e senha primeiro.
     if (
       !creds.username ||
       !creds.passwordHash ||
       username !== creds.username ||
       !verifyPassword(password || '', creds.passwordHash)
     ) {
-      return html(401, renderLogin('Usuário ou senha inválidos.'));
+      return html(401, renderLogin('Usuário ou senha inválidos.', mfaEnabled));
+    }
+    // Se o MFA estiver configurado, o código TOTP é obrigatório e precisa ser válido.
+    if (mfaEnabled && !totp.verify(code || '', creds.totpSecret)) {
+      return html(401, renderLogin('Código de verificação inválido.', mfaEnabled));
     }
     const token = createSession(creds.username, creds.sessionSecret);
     return redirect('.', { 'Set-Cookie': buildSessionCookie(token) });
