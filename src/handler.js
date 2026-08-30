@@ -1,6 +1,6 @@
 'use strict';
 
-const { monthRange, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames } = require('./costService');
+const { monthRange, monthRangeFromLabel, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins, applyMarginToServices, applyMarginToUsageTypes, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
 const { renderLogin, renderMfa, renderEnroll, renderChangePassword } = require('./loginPage');
@@ -103,12 +103,20 @@ async function apiTokenOk(event) {
   return provided === expected;
 }
 
-async function buildCostPayload() {
+/** Valida e extrai o parâmetro de mês (YYYY-MM) da query string. Retorna undefined se ausente/inválido. */
+function monthParam(event) {
+  const m = event.queryStringParameters?.month;
+  if (m && /^\d{4}-\d{2}$/.test(m)) return m;
+  return undefined;
+}
+
+async function buildCostPayload(monthLabel) {
   const marginMap = parseMarginMap(MARGIN_MAP);
-  const now = new Date();
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const current = monthRange(now);
-  const previous = monthRange(prev);
+  const current = monthLabel ? monthRangeFromLabel(monthLabel) : monthRange(new Date());
+  // Mês anterior ao selecionado (deriva do Start do mês atual).
+  const [cy, cm] = current.label.split('-').map(Number);
+  const prevRef = new Date(Date.UTC(cy, cm - 2, 1)); // cm é 1-based; -2 => mês anterior 0-based
+  const previous = monthRange(prevRef);
 
   const [curCosts, prevCosts, names] = await Promise.all([
     getCostByAccount(current),
@@ -148,13 +156,12 @@ async function buildCostPayload() {
  * com a margem da conta aplicada.
  * @param {string} accountId
  */
-async function buildAccountDetail(accountId) {
+async function buildAccountDetail(accountId, monthLabel) {
   const marginMap = parseMarginMap(MARGIN_MAP);
   const margin = marginFor(marginMap, accountId);
-  const now = new Date();
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const current = monthRange(now);
-  const previous = monthRange(prev);
+  const current = monthLabel ? monthRangeFromLabel(monthLabel) : monthRange(new Date());
+  const [cy, cm] = current.label.split('-').map(Number);
+  const previous = monthRange(new Date(Date.UTC(cy, cm - 2, 1)));
 
   const [curSvc, prevSvc, names] = await Promise.all([
     getCostByServiceForAccount(accountId, current),
@@ -178,13 +185,12 @@ async function buildAccountDetail(accountId) {
  * @param {string} accountId
  * @param {string} serviceName
  */
-async function buildServiceUsageDetail(accountId, serviceName) {
+async function buildServiceUsageDetail(accountId, serviceName, monthLabel) {
   const marginMap = parseMarginMap(MARGIN_MAP);
   const margin = marginFor(marginMap, accountId);
-  const now = new Date();
-  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
-  const current = monthRange(now);
-  const previous = monthRange(prev);
+  const current = monthLabel ? monthRangeFromLabel(monthLabel) : monthRange(new Date());
+  const [cy, cm] = current.label.split('-').map(Number);
+  const previous = monthRange(new Date(Date.UTC(cy, cm - 2, 1)));
 
   const [curUsage, prevUsage, names] = await Promise.all([
     getUsageByTypeForService(accountId, serviceName, current),
@@ -378,7 +384,7 @@ exports.handler = async (event) => {
       return json(400, { error: 'invalid_account_id' });
     }
     try {
-      return json(200, await buildAccountDetail(accountId));
+      return json(200, await buildAccountDetail(accountId, monthParam(event)));
     } catch (err) {
       console.error('Erro detalhe da conta:', err);
       return json(500, { error: 'internal_error', message: err.message });
@@ -400,7 +406,7 @@ exports.handler = async (event) => {
       return json(400, { error: 'invalid_service' });
     }
     try {
-      return json(200, await buildServiceUsageDetail(accountId, service));
+      return json(200, await buildServiceUsageDetail(accountId, service, monthParam(event)));
     } catch (err) {
       console.error('Erro detalhe do serviço:', err);
       return json(500, { error: 'internal_error', message: err.message });
@@ -412,7 +418,7 @@ exports.handler = async (event) => {
       return json(401, { error: 'unauthorized' });
     }
     try {
-      return json(200, await buildCostPayload());
+      return json(200, await buildCostPayload(monthParam(event)));
     } catch (err) {
       console.error('Erro custos:', err);
       return json(500, { error: 'internal_error', message: err.message });

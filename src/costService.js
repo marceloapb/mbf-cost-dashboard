@@ -8,25 +8,11 @@ const {
   OrganizationsClient,
   ListAccountsCommand,
 } = require('@aws-sdk/client-organizations');
+const { monthRange, monthRangeFromLabel, cleanUnit } = require('./dates');
 
 // Cost Explorer só existe no endpoint us-east-1
 const ce = new CostExplorerClient({ region: 'us-east-1' });
 const org = new OrganizationsClient({ region: 'us-east-1' });
-
-/**
- * Retorna o primeiro e último dia (exclusivo) do mês informado.
- * @param {Date} ref data de referência
- * @returns {{Start: string, End: string, label: string}} datas YYYY-MM-DD
- */
-function monthRange(ref) {
-  const y = ref.getUTCFullYear();
-  const m = ref.getUTCMonth();
-  const start = new Date(Date.UTC(y, m, 1));
-  const end = new Date(Date.UTC(y, m + 1, 1)); // Cost Explorer End é exclusivo
-  const fmt = (d) => d.toISOString().slice(0, 10);
-  const label = `${y}-${String(m + 1).padStart(2, '0')}`;
-  return { Start: fmt(start), End: fmt(end), label };
-}
 
 /**
  * Busca custo (UnblendedCost) agrupado por conta vinculada, no período dado.
@@ -97,10 +83,9 @@ async function getCostByServiceForAccount(accountId, period) {
       service: g.Keys?.[0] || 'unknown',
       cost: Number(g.Metrics?.UnblendedCost?.Amount || 0),
       usage: Number(g.Metrics?.UsageQuantity?.Amount || 0),
-      unit: g.Metrics?.UsageQuantity?.Unit || '',
+      unit: cleanUnit(g.Metrics?.UsageQuantity?.Unit),
     }))
-    .filter((s) => s.cost !== 0)
-    .sort((a, b) => b.cost - a.cost);
+    .sort((a, b) => b.cost - a.cost || b.usage - a.usage);
 }
 
 /**
@@ -134,10 +119,10 @@ async function getUsageByTypeForService(accountId, serviceName, period) {
       usageType: g.Keys?.[0] || 'unknown',
       cost: Number(g.Metrics?.UnblendedCost?.Amount || 0),
       usage: Number(g.Metrics?.UsageQuantity?.Amount || 0),
-      unit: g.Metrics?.UsageQuantity?.Unit || '',
+      unit: cleanUnit(g.Metrics?.UsageQuantity?.Unit),
     }))
     .filter((s) => s.cost !== 0 || s.usage !== 0)
     .sort((a, b) => b.cost - a.cost);
 }
 
-module.exports = { monthRange, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames };
+module.exports = { monthRange, monthRangeFromLabel, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames };

@@ -66,6 +66,23 @@ function renderTable(title, block) {
     </section>`;
 }
 
+/**
+ * Gera as <option> dos últimos 12 meses (YYYY-MM), marcando `selected` no mês atual selecionado.
+ * @param {string} selectedLabel ex.: "2026-08"
+ * @returns {string}
+ */
+function monthOptions(selectedLabel) {
+  const now = new Date();
+  const opts = [];
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const label = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+    const sel = label === selectedLabel ? ' selected' : '';
+    opts.push(`<option value="${label}"${sel}>${label}</option>`);
+  }
+  return opts.join('');
+}
+
 function renderDashboard(payload, username) {
   const userBar = username
     ? `<div class="userbar">
@@ -118,18 +135,29 @@ function renderDashboard(payload, username) {
     .modal h4 { font-size:13px; color:var(--mut); margin:16px 0 6px; font-weight:600; }
     .svc-row { cursor:pointer; transition:background .12s; }
     .svc-row:hover { background:#20242e; }
+    .monthbar { display:flex; align-items:center; gap:10px; padding:12px 20px; }
+    .monthbar label { color:var(--mut); font-size:13px; }
+    .monthbar select { background:#0f1115; color:var(--txt); border:1px solid var(--line); border-radius:8px; padding:8px 10px; font-size:14px; }
+    .mhint { color:var(--mut); font-size:12px; }
   </style>
 </head>
 <body>
   <header>
     <div>
       <h1>Painel de Custos — MBF</h1>
-      <div class="sub">Custos AWS por conta com margem aplicada · gerado em ${escapeHtml(payload.generatedAt)}</div>
+      <div class="sub">Custos AWS por conta com margem aplicada · <span id="genAt">gerado em ${escapeHtml(payload.generatedAt)}</span></div>
     </div>
     ${userBar}
   </header>
-  ${renderTable('Mês atual', payload.current)}
-  ${renderTable('Mês anterior', payload.previous)}
+  <div class="card monthbar">
+    <label for="monthSel">Mês:</label>
+    <select id="monthSel">${monthOptions(payload.current.period)}</select>
+    <span class="mhint" id="monthHint"></span>
+  </div>
+  <div id="tablesArea">
+    ${renderTable('Mês selecionado', payload.current)}
+    ${renderTable('Mês anterior', payload.previous)}
+  </div>
   <footer>
     Fonte: AWS Cost Explorer (UnblendedCost). "A cobrar" = custo × margem configurada por conta.
     Valores em USD. Clique numa conta para ver o detalhe por serviço.
@@ -212,7 +240,7 @@ function renderDashboard(payload, username) {
           '<div style="margin-top:12px"><a href="#" id="backSvc" class="ulink">← Voltar aos serviços</a></div>';
         var back = document.getElementById('backSvc');
         if (back) back.addEventListener('click', function (e) { e.preventDefault(); open(id, accEl.getAttribute('data-name') || id); });
-        fetch('api/costs/service?id=' + encodeURIComponent(id) + '&service=' + encodeURIComponent(service), { credentials: 'same-origin' })
+        fetch('api/costs/service?id=' + encodeURIComponent(id) + '&service=' + encodeURIComponent(service) + '&month=' + encodeURIComponent(selectedMonth()), { credentials: 'same-origin' })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .then(function (d) {
             body.innerHTML = '<div style="margin-bottom:12px"><a href="#" id="backSvc2" class="ulink">← Voltar aos serviços</a></div>' +
@@ -228,18 +256,68 @@ function renderDashboard(payload, username) {
         accEl.setAttribute('data-name', name);
         body.innerHTML = '<div class="loading">Carregando…</div>';
         bg.classList.add('open');
-        fetch('api/costs/account?id=' + encodeURIComponent(id), { credentials: 'same-origin' })
+        fetch('api/costs/account?id=' + encodeURIComponent(id) + '&month=' + encodeURIComponent(selectedMonth()), { credentials: 'same-origin' })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
           .then(function (d) { body.innerHTML = block('Mês atual', d.current, id) + block('Mês anterior', d.previous, id); bindServiceRows(); })
           .catch(function (e) { body.innerHTML = '<div class="loading">Erro ao carregar: ' + esc(e.message) + '</div>'; });
       }
       function close() { bg.classList.remove('open'); }
 
-      document.querySelectorAll('.acc-row').forEach(function (row) {
-        row.addEventListener('click', function () {
-          open(row.getAttribute('data-account-id'), row.getAttribute('data-account-name'));
+      // ---- Mês selecionado + re-render das tabelas por conta ----
+      var monthSel = document.getElementById('monthSel');
+      var tablesArea = document.getElementById('tablesArea');
+      var monthHint = document.getElementById('monthHint');
+      var genAt = document.getElementById('genAt');
+      function selectedMonth() { return monthSel ? monthSel.value : ''; }
+
+      function accRows(items) {
+        if (!items || !items.length) {
+          return '<tr><td colspan="5" class="empty">Sem contas no período.</td></tr>';
+        }
+        return items.map(function (it) {
+          return '<tr class="acc-row" data-account-id="' + esc(it.accountId) + '" data-account-name="' + esc(it.accountName) +
+            '" title="Ver detalhe por serviço"><td><div class="acc-name">' + esc(it.accountName) +
+            ' <span class="chev">›</span></div><div class="acc-id">' + esc(it.accountId) + '</div></td>' +
+            '<td class="num">' + usd(it.cost) + '</td><td class="num">' + Number(it.margin).toFixed(2) +
+            'x</td><td class="num billable">' + usd(it.billable) + '</td><td class="num profit">' + usd(it.profit) + '</td></tr>';
+        }).join('');
+      }
+      function accTable(label, b) {
+        return '<section class="card"><h2>' + esc(label) + ' <span class="period">' + esc(b.period) + '</span></h2>' +
+          '<table><thead><tr><th>Conta / Cliente</th><th class="num">Custo AWS</th><th class="num">Margem</th>' +
+          '<th class="num">A cobrar</th><th class="num">Lucro</th></tr></thead><tbody>' + accRows(b.items) +
+          '</tbody><tfoot><tr><td>Total</td><td class="num">' + usd(b.totals.cost) +
+          '</td><td class="num">—</td><td class="num billable">' + usd(b.totals.billable) +
+          '</td><td class="num profit">' + usd(b.totals.profit) + '</td></tr></tfoot></table></section>';
+      }
+      function bindAccRows() {
+        document.querySelectorAll('.acc-row').forEach(function (row) {
+          row.addEventListener('click', function () {
+            open(row.getAttribute('data-account-id'), row.getAttribute('data-account-name'));
+          });
         });
-      });
+      }
+      function loadMonth() {
+        var m = selectedMonth();
+        if (monthHint) monthHint.textContent = 'carregando ' + m + '…';
+        tablesArea.style.opacity = '0.5';
+        fetch('api/costs?month=' + encodeURIComponent(m), { credentials: 'same-origin' })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (d) {
+            tablesArea.innerHTML = accTable('Mês selecionado', d.current) + accTable('Mês anterior', d.previous);
+            tablesArea.style.opacity = '1';
+            if (monthHint) monthHint.textContent = '';
+            if (genAt && d.generatedAt) genAt.textContent = 'gerado em ' + d.generatedAt;
+            bindAccRows();
+          })
+          .catch(function (e) {
+            tablesArea.style.opacity = '1';
+            if (monthHint) monthHint.textContent = 'erro: ' + e.message;
+          });
+      }
+      if (monthSel) monthSel.addEventListener('change', loadMonth);
+
+      bindAccRows();
       document.getElementById('modalClose').addEventListener('click', close);
       bg.addEventListener('click', function (e) { if (e.target === bg) close(); });
       document.addEventListener('keydown', function (e) { if (e.key === 'Escape') close(); });
