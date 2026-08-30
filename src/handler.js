@@ -111,14 +111,31 @@ async function buildCostPayload() {
     getCostByAccount(previous),
     getAccountNames(),
   ]);
+
+  // Garante que TODA conta da Organization apareça, mesmo com custo zero
+  // (contas novas/sem uso não vêm no Cost Explorer). Sobrepõe os custos do CE.
+  const mergeAllAccounts = (list) => {
+    const byId = new Map();
+    for (const id of Object.keys(names)) byId.set(id, { accountId: id, cost: 0 });
+    for (const c of list) {
+      const existing = byId.get(c.accountId) || { accountId: c.accountId, cost: 0 };
+      existing.cost = c.cost;
+      byId.set(c.accountId, existing);
+    }
+    return Array.from(byId.values());
+  };
+
   const withNames = (list) =>
     list.map((c) => ({ ...c, accountName: names[c.accountId] || c.accountId }));
+
+  const curFull = withNames(mergeAllAccounts(curCosts));
+  const prevFull = withNames(mergeAllAccounts(prevCosts));
 
   return {
     generatedAt: new Date().toISOString(),
     marginMap,
-    current: { period: current.label, ...applyMargins(withNames(curCosts), marginMap) },
-    previous: { period: previous.label, ...applyMargins(withNames(prevCosts), marginMap) },
+    current: { period: current.label, ...applyMargins(curFull, marginMap) },
+    previous: { period: previous.label, ...applyMargins(prevFull, marginMap) },
   };
 }
 
