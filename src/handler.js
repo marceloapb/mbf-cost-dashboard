@@ -3,7 +3,7 @@
 const { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins, applyMarginToServices, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
-const { renderLogin, renderEnroll, renderChangePassword } = require('./loginPage');
+const { renderLogin, renderMfa, renderEnroll, renderChangePassword } = require('./loginPage');
 const { loadCredentials, saveTotpSecret, savePasswordHash } = require('./credentials');
 const totp = require('./totp');
 const {
@@ -14,6 +14,8 @@ const {
   verifySession,
   createEnrollmentToken,
   verifyEnrollmentToken,
+  createMfaToken,
+  verifyMfaToken,
   readCookie,
   buildSessionCookie,
   buildLogoutCookie,
@@ -183,17 +185,11 @@ exports.handler = async (event) => {
 
   // Login
   if (path === '/login' && method === 'GET') {
-    let mfaEnabled = false;
-    try {
-      const creds = await loadCredentials();
-      mfaEnabled = Boolean(creds.totpSecret);
-    } catch (err) {
-      console.error('Erro ao carregar credenciais (GET /login):', err);
-    }
-    return html(200, renderLogin(undefined, mfaEnabled));
+    return html(200, renderLogin());
   }
   if (path === '/login' && method === 'POST') {
-    const { username, password, code } = parseBody(event);
+    // Etapa 1: valida usuário + senha. Não recebe código MFA aqui.
+    const { username, password } = parseBody(event);
     let creds;
     try {
       creds = await loadCredentials();
@@ -209,7 +205,7 @@ exports.handler = async (event) => {
       username !== creds.username ||
       !verifyPassword(password || '', creds.passwordHash)
     ) {
-      return html(401, renderLogin('Usuário ou senha inválidos.', mfaEnabled));
+      return html(401, renderLogin('Usuário ou senha inválidos.'));
     }
     // Sem MFA configurado ainda → inicia o enrollment (primeiro login).
     if (!mfaEnabled) {
@@ -224,9 +220,37 @@ exports.handler = async (event) => {
         renderEnroll({ username: creds.username, secret, otpauth, enrollToken })
       );
     }
-    // MFA já ativo → código TOTP obrigatório.
+    // MFA já ativo → etapa 2: exibe a tela que pede apenas o código.
+    const mfaToken = createMfaToken(creds.username, creds.sessionSecret);
+    return html(200, renderMfa({ username: creds.username, mfaToken }));
+  }
+  // Etapa 2 do login: valida o código TOTP e cria a sessão.
+  if (path === '/mfa' && method === 'POST') {
+    const { mfa, code } = parseBody(event);
+    let creds;
+    try {
+      creds = await loadCredentials();
+    } catch (err) {
+      console.error('Erro ao carregar credenciais (mfa):', err);
+      return html(500, renderLogin('Erro interno de configuração.'));
+    }
+    // Sem MFA configurado (ex.: foi resetado) → volta ao login/enrollment.
+    if (!creds.totpSecret) {
+      return redirect('login');
+    }
+    // Valida o token de MFA pendente emitido na etapa 1 (identidade + validade).
+    const pending = verifyMfaToken(mfa || '', creds.sessionSecret);
+    if (!pending || pending.username !== creds.username) {
+      return html(401, renderLogin('Sessão de verificação expirada. Entre novamente.'));
+    }
+    // Código TOTP obrigatório.
     if (!totp.verify(code || '', creds.totpSecret)) {
-      return html(401, renderLogin('Código de verificação inválido.', mfaEnabled));
+      // Reemite o desafio para permitir nova tentativa sem repetir a senha.
+      const mfaToken = createMfaToken(creds.username, creds.sessionSecret);
+      return html(
+        401,
+        renderMfa({ username: creds.username, mfaToken }, 'Código de verificação inválido.')
+      );
     }
     const token = createSession(creds.username, creds.sessionSecret);
     return redirect('.', { 'Set-Cookie': buildSessionCookie(token) });
