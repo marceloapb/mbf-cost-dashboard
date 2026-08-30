@@ -280,6 +280,31 @@ exports.handler = async (event) => {
   if (path === '/health') {
     return json(200, { status: 'ok', service: 'mbf-cost-dashboard' });
   }
+  // PWA: manifest, service worker e ícone (públicos).
+  if (path === '/manifest.webmanifest') {
+    const { MANIFEST } = require('./pwa');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/manifest+json; charset=utf-8', 'Cache-Control': 'public, max-age=3600' },
+      body: JSON.stringify(MANIFEST),
+    };
+  }
+  if (path === '/sw.js') {
+    const { SERVICE_WORKER } = require('./pwa');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' },
+      body: SERVICE_WORKER,
+    };
+  }
+  if (path === '/icon.svg') {
+    const { ICON_SVG } = require('./pwa');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'image/svg+xml; charset=utf-8', 'Cache-Control': 'public, max-age=86400' },
+      body: ICON_SVG,
+    };
+  }
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' };
   }

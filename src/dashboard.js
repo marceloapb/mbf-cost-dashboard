@@ -1,6 +1,7 @@
 'use strict';
 
 const { FAVICON_TAG } = require('./brand');
+const { PWA_HEAD_TAGS } = require('./pwa');
 
 /**
  * Renderiza o dashboard HTML a partir do payload de custos.
@@ -101,6 +102,7 @@ function renderDashboard(payload, username) {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   ${FAVICON_TAG}
+  ${PWA_HEAD_TAGS}
   <title>MBF — Painel de Custos</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --ok:#3ddc97; --acc:#5b9dff; }
