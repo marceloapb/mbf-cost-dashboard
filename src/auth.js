@@ -160,11 +160,41 @@ function buildLogoutCookie() {
   return `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0`;
 }
 
+/**
+ * Valida uma solicitação de troca de senha (regras puras, sem I/O).
+ * @param {object} p
+ * @param {string} p.current senha atual digitada
+ * @param {string} p.novaSenha nova senha
+ * @param {string} p.confirmar confirmação da nova senha
+ * @param {string} p.storedHash hash atual ("salt:hash")
+ * @returns {{ok: true}|{ok: false, error: string}}
+ */
+function validatePasswordChange(p) {
+  const { current, novaSenha, confirmar, storedHash } = p || {};
+  if (!current || !novaSenha || !confirmar) {
+    return { ok: false, error: 'Preencha todos os campos.' };
+  }
+  if (!verifyPassword(current, storedHash || '')) {
+    return { ok: false, error: 'Senha atual incorreta.' };
+  }
+  if (novaSenha.length < 8) {
+    return { ok: false, error: 'A nova senha deve ter ao menos 8 caracteres.' };
+  }
+  if (novaSenha !== confirmar) {
+    return { ok: false, error: 'A confirmação não corresponde à nova senha.' };
+  }
+  if (novaSenha === current) {
+    return { ok: false, error: 'A nova senha deve ser diferente da atual.' };
+  }
+  return { ok: true };
+}
+
 module.exports = {
   COOKIE_NAME,
   SESSION_TTL_SECONDS,
   hashPassword,
   verifyPassword,
+  validatePasswordChange,
   createSession,
   verifySession,
   createEnrollmentToken,

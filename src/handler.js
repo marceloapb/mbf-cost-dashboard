@@ -3,11 +3,13 @@
 const { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins, applyMarginToServices, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
-const { renderLogin, renderEnroll } = require('./loginPage');
-const { loadCredentials, saveTotpSecret } = require('./credentials');
+const { renderLogin, renderEnroll, renderChangePassword } = require('./loginPage');
+const { loadCredentials, saveTotpSecret, savePasswordHash } = require('./credentials');
 const totp = require('./totp');
 const {
+  hashPassword,
   verifyPassword,
+  validatePasswordChange,
   createSession,
   verifySession,
   createEnrollmentToken,
@@ -274,6 +276,40 @@ exports.handler = async (event) => {
   if (path === '/logout') {
     return redirect('login', { 'Set-Cookie': buildLogoutCookie() });
   }
+  // Troca de senha (exige sessão)
+  if (path === '/senha' && method === 'GET') {
+    const user = await sessionUser(event);
+    if (!user) return redirect('login');
+    return html(200, renderChangePassword({ username: user }));
+  }
+  if (path === '/senha' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user) return redirect('login');
+    const { current, novaSenha, confirmar } = parseBody(event);
+    let creds;
+    try {
+      creds = await loadCredentials();
+    } catch (err) {
+      console.error('Erro ao carregar credenciais (senha):', err);
+      return html(500, renderChangePassword({ username: user }, 'Erro interno de configuração.'));
+    }
+    const check = validatePasswordChange({
+      current,
+      novaSenha,
+      confirmar,
+      storedHash: creds.passwordHash,
+    });
+    if (!check.ok) {
+      return html(400, renderChangePassword({ username: user }, check.error));
+    }
+    try {
+      await savePasswordHash(hashPassword(novaSenha));
+    } catch (err) {
+      console.error('Erro ao gravar nova senha:', err);
+      return html(500, renderChangePassword({ username: user }, 'Não foi possível salvar a nova senha.'));
+    }
+    return html(200, renderChangePassword({ username: user }, undefined, 'Senha alterada com sucesso.'));
+  }
 
   // API JSON — aceita sessão OU token de API
   // Drill-down analítico: custo por serviço de uma conta. /api/costs/account?id=<accountId>
@@ -312,7 +348,7 @@ exports.handler = async (event) => {
     return redirect('login');
   }
   try {
-    return html(200, renderDashboard(await buildCostPayload()));
+    return html(200, renderDashboard(await buildCostPayload(), user));
   } catch (err) {
     console.error('Erro dashboard:', err);
     return json(500, { error: 'internal_error', message: err.message });

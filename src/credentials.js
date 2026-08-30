@@ -45,7 +45,25 @@ async function loadCredentials() {
   return cache;
 }
 
-module.exports = { loadCredentials, saveTotpSecret, PREFIX };
+module.exports = { loadCredentials, saveTotpSecret, savePasswordHash, PREFIX };
+
+/**
+ * Grava o hash de senha no SSM como SecureString e invalida o cache local.
+ * @param {string} passwordHash hash no formato "salt:hash"
+ * @returns {Promise<void>}
+ */
+async function savePasswordHash(passwordHash) {
+  await ssm.send(
+    new PutParameterCommand({
+      Name: `${PREFIX}/password-hash`,
+      Value: passwordHash,
+      Type: 'SecureString',
+      Overwrite: true,
+    })
+  );
+  cache = null;
+  cacheAt = 0;
+}
 
 /**
  * Grava o secret TOTP no SSM como SecureString e invalida o cache local.

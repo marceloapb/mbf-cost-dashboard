@@ -66,7 +66,14 @@ function renderTable(title, block) {
     </section>`;
 }
 
-function renderDashboard(payload) {
+function renderDashboard(payload, username) {
+  const userBar = username
+    ? `<div class="userbar">
+         <span class="uname">👤 ${escapeHtml(username)}</span>
+         <a class="ulink" href="senha">Trocar senha</a>
+         <a class="ulink" href="logout">Sair</a>
+       </div>`
+    : '';
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -77,9 +84,13 @@ function renderDashboard(payload) {
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --ok:#3ddc97; --acc:#5b9dff; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; background:var(--bg); color:var(--txt); padding:24px; }
-    header { max-width:960px; margin:0 auto 20px; }
+    header { max-width:960px; margin:0 auto 20px; display:flex; justify-content:space-between; align-items:flex-start; gap:16px; flex-wrap:wrap; }
     h1 { font-size:20px; margin:0 0 4px; }
     .sub { color:var(--mut); font-size:13px; }
+    .userbar { display:flex; align-items:center; gap:14px; font-size:13px; }
+    .uname { color:var(--txt); font-weight:600; }
+    .ulink { color:var(--acc); text-decoration:none; }
+    .ulink:hover { text-decoration:underline; }
     .card { max-width:960px; margin:0 auto 20px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px 20px; }
     h2 { font-size:15px; margin:0 0 12px; display:flex; align-items:center; gap:10px; }
     .period { color:var(--mut); font-weight:400; font-size:13px; }
@@ -109,8 +120,11 @@ function renderDashboard(payload) {
 </head>
 <body>
   <header>
-    <h1>Painel de Custos — MBF</h1>
-    <div class="sub">Custos AWS por conta com margem aplicada · gerado em ${escapeHtml(payload.generatedAt)}</div>
+    <div>
+      <h1>Painel de Custos — MBF</h1>
+      <div class="sub">Custos AWS por conta com margem aplicada · gerado em ${escapeHtml(payload.generatedAt)}</div>
+    </div>
+    ${userBar}
   </header>
   ${renderTable('Mês atual', payload.current)}
   ${renderTable('Mês anterior', payload.previous)}
