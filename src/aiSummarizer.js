@@ -12,9 +12,10 @@ const MODEL_ID = process.env.BEDROCK_MODEL_ID || 'us.anthropic.claude-haiku-4-5-
 /**
  * Analisa um e-mail via Bedrock (Claude). Retorna a análise normalizada.
  * @param {{subject:string, from:string, text:string}} email
+ * @param {string} [modelId] id do modelo/inference profile (sobrepõe o default)
  * @returns {Promise<object>}
  */
-async function summarizeEmail(email) {
+async function summarizeEmail(email, modelId) {
   const payload = {
     anthropic_version: 'bedrock-2023-05-31',
     max_tokens: 1024,
@@ -22,7 +23,7 @@ async function summarizeEmail(email) {
     messages: [{ role: 'user', content: [{ type: 'text', text: buildPrompt(email) }] }],
   };
   const cmd = new InvokeModelCommand({
-    modelId: MODEL_ID,
+    modelId: modelId || MODEL_ID,
     contentType: 'application/json',
     accept: 'application/json',
     body: JSON.stringify(payload),

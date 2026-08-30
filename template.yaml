@@ -61,6 +61,8 @@ Resources:
           SSM_PREFIX: !Sub '/mbf/${Stage}/cost-dashboard'
           EMAILS_TABLE: !Sub 'mbf-${Stage}-aws-emails'
           BEDROCK_MODEL_ID: us.anthropic.claude-haiku-4-5-20251001-v1:0
+          SCAN_RULE_NAME: !Sub 'mbf-cost-dashboard-scan-${Stage}'
+          SELF_FUNCTION_NAME: !Sub 'mbf-${Stage}-cost-dashboard'
       Policies:
         - Statement:
             - Effect: Allow
@@ -95,6 +97,17 @@ Resources:
                 - dynamodb:Scan
               Resource:
                 - !GetAtt EmailsTable.Arn
+            - Effect: Allow
+              Action:
+                - events:PutRule
+                - events:DescribeRule
+              Resource:
+                - !Sub 'arn:aws:events:${AWS::Region}:${AWS::AccountId}:rule/mbf-cost-dashboard-scan-${Stage}'
+            - Effect: Allow
+              Action:
+                - lambda:InvokeFunction
+              Resource:
+                - !Sub 'arn:aws:lambda:${AWS::Region}:${AWS::AccountId}:function:mbf-${Stage}-cost-dashboard'
       Events:
         Root:
           Type: HttpApi
@@ -111,6 +124,7 @@ Resources:
         HourlyScan:
           Type: Schedule
           Properties:
+            Name: !Sub 'mbf-cost-dashboard-scan-${Stage}'
             Schedule: rate(1 hour)
             Input: '{"source":"scheduled-scan"}'
 

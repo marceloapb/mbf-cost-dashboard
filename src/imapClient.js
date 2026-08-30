@@ -14,6 +14,7 @@ const { isAwsEmail, extractAddress } = require('./awsSenderFilter');
  */
 async function fetchAwsEmailsFromBox(box, opts = {}) {
   const max = opts.max || 500;
+  const windowDays = Number(opts.windowDays) || 0; // 0 = caixa toda
   const senders = opts.senders;
   const client = new ImapFlow({
     host: box.host,
@@ -29,13 +30,25 @@ async function fetchAwsEmailsFromBox(box, opts = {}) {
     // openbox read-only (não altera flags \Seen)
     const lock = await client.getMailboxLock('INBOX', { readonly: true });
     try {
-      // Varre a caixa TODA (lidos e não lidos). Pega os mais recentes até o teto `max`.
-      const status = await client.status('INBOX', { messages: true });
-      const total = (status && status.messages) || 0;
-      if (total > 0) {
-        const start = Math.max(1, total - max + 1);
-        const range = `${start}:*`; // sequência: últimos `max` da caixa
-        for await (const msg of client.fetch(range, { source: true })) {
+      // Define o conjunto de mensagens: janela de N dias (search SINCE) ou a caixa toda.
+      let seqSource; // async iterable de fetch
+      if (windowDays > 0) {
+        const since = new Date(Date.now() - windowDays * 24 * 60 * 60 * 1000);
+        const uids = await client.search({ since }, { uid: true });
+        const pick = (uids || []).slice(-max);
+        seqSource = pick.length
+          ? client.fetch(pick, { source: true }, { uid: true })
+          : null;
+      } else {
+        const status = await client.status('INBOX', { messages: true });
+        const total = (status && status.messages) || 0;
+        if (total > 0) {
+          const start = Math.max(1, total - max + 1);
+          seqSource = client.fetch(`${start}:*`, { source: true });
+        }
+      }
+      if (seqSource) {
+        for await (const msg of seqSource) {
           if (!msg || !msg.source) continue;
           const parsed = await simpleParser(msg.source);
           const from = parsed.from?.text || '';
@@ -43,7 +56,7 @@ async function fetchAwsEmailsFromBox(box, opts = {}) {
           if (!isAwsEmail({ from, subject }, senders)) continue;
           const messageId =
             (parsed.messageId || '').trim() ||
-            `${box.user}:${msg.seq}`; // fallback estável por caixa+seq
+            `${box.user}:${msg.uid || msg.seq}`;
           out.push({
             messageId,
             mailbox: box.user,
@@ -81,7 +94,12 @@ async function fetchAllAwsEmails(config, opts = {}) {
     }
     try {
       const box = { host: config.host, port: config.port, user: mb.user, password: mb.password };
-      const found = await fetchAwsEmailsFromBox(box, { ...opts, senders: config.senders });
+      const found = await fetchAwsEmailsFromBox(box, {
+        ...opts,
+        senders: config.senders,
+        windowDays: config.scanWindowDays,
+        max: config.scanLimit || opts.max,
+      });
       emails.push(...found);
     } catch (err) {
       errors.push({ user: mb.user, error: err.message });

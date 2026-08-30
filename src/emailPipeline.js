@@ -18,16 +18,24 @@ async function runScan(opts = {}) {
   }
   const { emails, errors } = await fetchAllAwsEmails(config, opts);
   let novos = 0;
+  let analisados = 0;
   const erros = [...errors];
+  const limite = config.scanLimit || 100;
+  const modelId = config.bedrockModelId;
 
   for (const mail of emails) {
     try {
       if (await store.exists(mail.messageId)) continue;
-      const analysis = await summarizeEmail({
-        subject: mail.subject,
-        from: mail.from,
-        text: mail.text,
-      });
+      // Teto de segurança: só chama a IA até `limite` e-mails NOVOS por scan.
+      if (analisados >= limite) {
+        erros.push({ info: `limite de ${limite} por scan atingido; rode novamente para continuar` });
+        break;
+      }
+      analisados += 1;
+      const analysis = await summarizeEmail(
+        { subject: mail.subject, from: mail.from, text: mail.text },
+        modelId
+      );
       const record = {
         messageId: mail.messageId,
         mailbox: mail.mailbox,

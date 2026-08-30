@@ -3,9 +3,10 @@
 const { monthRange, monthRangeFromLabel, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins, applyMarginToServices, applyMarginToUsageTypes, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
-const { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderImapConfig } = require('./loginPage');
+const { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderConfig } = require('./loginPage');
 const { loadCredentials, saveTotpSecret, savePasswordHash } = require('./credentials');
-const { loadImapConfig, saveImapConfig, redactConfig } = require('./emailConfig');
+const { loadImapConfig, saveImapConfig, redactConfig, MODEL_OPTIONS } = require('./emailConfig');
+const { updateScanInterval } = require('./scheduleManager');
 const emailStore = require('./emailStore');
 const { runScan } = require('./emailPipeline');
 const totp = require('./totp');
@@ -394,21 +395,21 @@ exports.handler = async (event) => {
     if (!user) return redirect('login');
     return html(200, renderEmails({ username: user }));
   }
-  // Tela de configuração IMAP (HTML) — exige sessão.
-  if (path === '/config-imap' && method === 'GET') {
+  // Central de configurações (HTML) — exige sessão.
+  if (path === '/config' && method === 'GET') {
     const user = await sessionUser(event);
     if (!user) return redirect('login');
     let cfg;
     try {
       cfg = redactConfig(await loadImapConfig());
     } catch (err) {
-      console.error('Erro ao carregar imap-config:', err);
-      cfg = { host: '', port: 993, mailboxes: [] };
+      console.error('Erro ao carregar config:', err);
+      cfg = redactConfig({ mailboxes: [] });
     }
-    return html(200, renderImapConfig({ username: user, config: cfg }));
+    return html(200, renderConfig({ username: user, config: cfg, models: MODEL_OPTIONS }));
   }
-  // Salvar config IMAP (form) — exige sessão. Rota relativa "config-imap".
-  if (path === '/config-imap' && method === 'POST') {
+  // Salvar configurações (form) — exige sessão. Rota relativa "config".
+  if (path === '/config' && method === 'POST') {
     const user = await sessionUser(event);
     if (!user) return redirect('login');
     const b = parseBody(event);
@@ -417,20 +418,39 @@ exports.handler = async (event) => {
       const u = (b[`user${i}`] || '').trim();
       if (u) mailboxes.push({ user: u, password: b[`pass${i}`] || '' });
     }
-    const incoming = { host: (b.host || '').trim(), port: Number(b.port) || 993, mailboxes, senders: b.senders || '' };
+    const incoming = {
+      host: (b.host || '').trim(),
+      port: Number(b.port) || 993,
+      mailboxes,
+      senders: b.senders || '',
+      scanLimit: b.scanLimit,
+      scanWindowDays: b.scanWindowDays,
+      scanIntervalHours: b.scanIntervalHours,
+      bedrockModelId: b.bedrockModelId,
+    };
     if (!incoming.host || !mailboxes.length) {
       const cfg = redactConfig(await loadImapConfig());
-      return html(400, renderImapConfig({ username: user, config: cfg }, 'Informe o servidor e ao menos uma caixa.'));
+      return html(400, renderConfig({ username: user, config: cfg, models: MODEL_OPTIONS }, 'Informe o servidor e ao menos uma caixa.'));
     }
     try {
       await saveImapConfig(incoming);
     } catch (err) {
-      console.error('Erro ao salvar imap-config:', err);
+      console.error('Erro ao salvar config:', err);
       const cfg = redactConfig(await loadImapConfig());
-      return html(500, renderImapConfig({ username: user, config: cfg }, 'Não foi possível salvar a configuração.'));
+      return html(500, renderConfig({ username: user, config: cfg, models: MODEL_OPTIONS }, 'Não foi possível salvar a configuração.'));
+    }
+    // Aplica a frequência no EventBridge (falha suave — não bloqueia o salvamento).
+    let okMsg = 'Configurações salvas com sucesso.';
+    const sched = await updateScanInterval(incoming.scanIntervalHours);
+    if (!sched.ok) {
+      okMsg += ' (A frequência foi salva, mas o agendamento não pôde ser atualizado agora.)';
     }
     const cfg = redactConfig(await loadImapConfig());
-    return html(200, renderImapConfig({ username: user, config: cfg }, undefined, 'Configuração salva com sucesso.'));
+    return html(200, renderConfig({ username: user, config: cfg, models: MODEL_OPTIONS }, undefined, okMsg));
+  }
+  // Redireciona a rota antiga para a central de configurações.
+  if (path === '/config-imap') {
+    return redirect('config');
   }
   // Lista JSON dos e-mails processados — exige sessão OU token de API.
   if (path === '/api/emails' && method === 'GET') {
@@ -443,14 +463,29 @@ exports.handler = async (event) => {
       return json(500, { error: 'internal_error', message: err.message });
     }
   }
-  // Verificar agora (sob demanda) — exige sessão OU token de API.
+  // Verificar agora (sob demanda) — dispara o scan em BACKGROUND e responde na hora.
+  // (O scan síncrono estoura o limite de 30s do API Gateway → 503. Por isso é assíncrono.)
   if (path === '/api/emails/scan' && method === 'POST') {
     const user = await sessionUser(event);
     if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
     try {
+      const fn = process.env.SELF_FUNCTION_NAME;
+      if (fn) {
+        const { LambdaClient, InvokeCommand } = require('@aws-sdk/client-lambda');
+        const lambda = new LambdaClient({ region: process.env.AWS_REGION || 'us-east-1' });
+        await lambda.send(
+          new InvokeCommand({
+            FunctionName: fn,
+            InvocationType: 'Event', // assíncrono (fire-and-forget)
+            Payload: Buffer.from(JSON.stringify({ source: 'scheduled-scan' })),
+          })
+        );
+        return json(202, { started: true, message: 'Verificação iniciada em segundo plano.' });
+      }
+      // Fallback: sem nome da função, roda síncrono (pode estourar em caixas grandes).
       return json(200, await runScan());
     } catch (err) {
-      console.error('Erro no scan sob demanda:', err);
+      console.error('Erro ao iniciar scan:', err);
       return json(500, { error: 'internal_error', message: err.message });
     }
   }

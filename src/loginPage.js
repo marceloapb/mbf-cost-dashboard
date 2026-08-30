@@ -187,7 +187,7 @@ function renderEnroll(p, error) {
 </html>`;
 }
 
-module.exports = { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderImapConfig };
+module.exports = { renderLogin, renderMfa, renderEnroll, renderChangePassword, renderEmails, renderConfig };
 
 /**
  * Aba "E-mails AWS": lista os e-mails processados com badges de urgência,
@@ -235,7 +235,7 @@ function renderEmails(p) {
 <body>
   <header>
     <h1>📧 E-mails AWS</h1>
-    <div><a href=".">← Painel</a> · <a href="config-imap">⚙️ Config IMAP</a> · <a href="logout">Sair</a></div>
+    <div><a href=".">← Painel</a> · <a href="config">⚙️ Configurações</a> · <a href="logout">Sair</a></div>
   </header>
   <div class="toolbar">
     <button id="scanBtn">🔄 Verificar agora</button>
@@ -278,12 +278,20 @@ function renderEmails(p) {
           .catch(function(e){ listArea.innerHTML = '<div class="empty">Erro ao carregar: '+esc(e.message)+'</div>'; });
       }
       scanBtn.addEventListener('click', function(){
-        scanBtn.disabled = true; scanHint.textContent = 'Verificando caixas… (pode levar alguns segundos)';
+        scanBtn.disabled = true; scanHint.textContent = 'Verificação iniciada em segundo plano… atualizando a lista.';
         fetch('api/emails/scan', { method:'POST', credentials:'same-origin' })
           .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
-          .then(function(d){ scanHint.textContent = 'Concluído: '+(d.novos||0)+' novo(s) de '+(d.scanned||0)+' lido(s).'; load(); })
-          .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); })
-          .finally(function(){ scanBtn.disabled = false; });
+          .then(function(){
+            // Processamento roda em background; recarrega a lista algumas vezes.
+            var tries = 0;
+            var timer = setInterval(function(){
+              tries++;
+              load();
+              if (tries >= 6) { clearInterval(timer); scanBtn.disabled = false; scanHint.textContent = 'Lista atualizada. Se faltar algo, verifique novamente em instantes.'; }
+              else { scanHint.textContent = 'Processando em segundo plano… (' + tries + ')'; }
+            }, 5000);
+          })
+          .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); scanBtn.disabled = false; });
       });
       load();
     })();
@@ -301,12 +309,12 @@ function renderEmails(p) {
  * @param {string} [error]
  * @param {string} [ok]
  */
-function renderImapConfig(p, error, ok) {
-  const cfg = (p && p.config) || { host: '', port: 993, mailboxes: [] };
+function renderConfig(p, error, ok) {
+  const cfg = (p && p.config) || { host: '', port: 993, mailboxes: [], senders: [], scanLimit: 100, scanWindowDays: 0, scanIntervalHours: 1, bedrockModelId: '' };
+  const models = (p && p.models) || [];
   const errBox = error ? `<div class="err">${String(error).replace(/</g, '&lt;')}</div>` : '';
   const okBox = ok ? `<div class="ok">${String(ok).replace(/</g, '&lt;')}</div>` : '';
   const esc = (s) => String(s == null ? '' : s).replace(/"/g, '&quot;').replace(/</g, '&lt;');
-  // Garante ao menos 2 linhas de caixa para preencher.
   const boxes = cfg.mailboxes.slice();
   while (boxes.length < 2) boxes.push({ user: '', hasPassword: false });
   const boxRows = boxes
@@ -320,55 +328,99 @@ function renderImapConfig(p, error, ok) {
       </div>`
     )
     .join('');
+  const modelOptions = models
+    .map((m) => `<option value="${esc(m.id)}"${m.id === cfg.bedrockModelId ? ' selected' : ''}>${esc(m.label)}</option>`)
+    .join('');
   return `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   ${FAVICON_TAG}
-  <title>MBF — Configuração IMAP</title>
+  <title>MBF — Configurações</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }
     * { box-sizing:border-box; }
-    body { margin:0; min-height:100vh; display:flex; align-items:flex-start; justify-content:center; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:40px 16px; }
-    .card { width:100%; max-width:460px; background:var(--card); border:1px solid var(--line); border-radius:14px; padding:26px; }
-    h1 { font-size:18px; margin:0 0 4px; }
-    .sub { color:var(--mut); font-size:13px; margin-bottom:18px; }
+    body { margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif; background:var(--bg); color:var(--txt); padding:40px 16px; }
+    form { width:100%; max-width:560px; margin:0 auto; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:22px 24px; margin-bottom:16px; }
+    h1 { font-size:20px; margin:0 0 16px; max-width:560px; margin-left:auto; margin-right:auto; }
+    h2 { font-size:15px; margin:0 0 4px; }
+    .sub { color:var(--mut); font-size:13px; margin-bottom:14px; }
     label { display:block; font-size:13px; color:var(--mut); margin:12px 0 6px; }
-    input { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; }
-    textarea { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; resize:vertical; }
+    input, select, textarea { width:100%; padding:11px 12px; border-radius:8px; border:1px solid var(--line); background:#0f1115; color:var(--txt); font-size:14px; }
+    textarea { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; resize:vertical; }
     .row2 { display:flex; gap:12px; }
     .row2 > div { flex:1; }
     .mbox { border:1px solid var(--line); border-radius:10px; padding:12px; margin-top:14px; }
-    button { width:100%; margin-top:20px; padding:12px; border:0; border-radius:8px; background:var(--acc); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
+    button { width:100%; margin-top:4px; padding:13px; border:0; border-radius:8px; background:var(--acc); color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
     .err { background:#3a1d1d; border:1px solid #5a2a2a; color:#ffb4b4; padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
     .ok { background:#12301f; border:1px solid #1f5a3a; color:#8ff0bf; padding:10px 12px; border-radius:8px; font-size:13px; margin-bottom:12px; }
-    .back { display:block; text-align:center; margin-top:14px; color:var(--mut); font-size:13px; text-decoration:none; }
     .note { color:var(--mut); font-size:12px; margin-top:8px; line-height:1.5; }
+    .back { display:block; text-align:center; margin-top:6px; color:var(--mut); font-size:13px; text-decoration:none; }
   </style>
 </head>
 <body>
-  <form class="card" method="POST" action="config-imap">
-    <h1>Configuração IMAP</h1>
-    <div class="sub">Credenciais das caixas que recebem os e-mails da AWS. As senhas são guardadas cifradas (SSM SecureString) e nunca exibidas.</div>
-    ${okBox}${errBox}
-    <div class="row2">
-      <div>
-        <label>Servidor IMAP</label>
-        <input name="host" value="${esc(cfg.host || 'imap.hostinger.com')}" placeholder="imap.hostinger.com">
+  <h1>⚙️ Configurações</h1>
+  <form method="POST" action="config">
+    <div style="max-width:560px;margin:0 auto">${okBox}${errBox}</div>
+
+    <div class="card">
+      <h2>Servidor IMAP</h2>
+      <div class="sub">Credenciais das caixas monitoradas. Senhas ficam cifradas (SSM) e nunca são exibidas.</div>
+      <div class="row2">
+        <div><label>Servidor</label><input name="host" value="${esc(cfg.host || 'imap.hostinger.com')}" placeholder="imap.hostinger.com"></div>
+        <div><label>Porta</label><input name="port" value="${esc(cfg.port || 993)}" inputmode="numeric"></div>
       </div>
-      <div>
-        <label>Porta</label>
-        <input name="port" value="${esc(cfg.port || 993)}" inputmode="numeric">
-      </div>
+      ${boxRows}
+      <div class="note">Hostinger: <b>imap.hostinger.com</b> / porta <b>993</b> (SSL). O leitor apenas lê (não apaga nem move).</div>
     </div>
-    ${boxRows}
-    <label>Remetentes a monitorar (opcional)</label>
-    <textarea name="senders" rows="4" placeholder="Um por linha. Ex.:&#10;@amazonaws.com&#10;aws-marketing@amazon.com&#10;no-reply@aws.amazon.com">${esc((cfg.senders || []).join('\n'))}</textarea>
-    <div class="note">Se preencher, o sistema monitora <b>exatamente</b> esses remetentes/domínios (basta uma parte do endereço). Se deixar em branco, usa a detecção automática de e-mails da AWS.</div>
-    <button type="submit">Salvar configuração</button>
-    <div class="note">Dica: no Hostinger o servidor é <b>imap.hostinger.com</b>, porta <b>993</b> (SSL). O leitor apenas <b>lê</b> os e-mails (não apaga nem move).</div>
-    <a class="back" href="emails">← Voltar aos e-mails</a>
+
+    <div class="card">
+      <h2>Remetentes monitorados</h2>
+      <div class="sub">Um por linha. Se preencher, monitora exatamente esses remetentes/domínios (basta parte do endereço). Vazio = detecção automática da AWS.</div>
+      <textarea name="senders" rows="4" placeholder="@amazonaws.com&#10;aws-marketing@amazon.com&#10;no-reply@aws.amazon.com">${esc((cfg.senders || []).join('\n'))}</textarea>
+    </div>
+
+    <div class="card">
+      <h2>Leitura & IA</h2>
+      <div class="row2">
+        <div>
+          <label>Janela de busca</label>
+          <select name="scanWindowDays">
+            <option value="0"${Number(cfg.scanWindowDays) === 0 ? ' selected' : ''}>Caixa inteira</option>
+            <option value="7"${Number(cfg.scanWindowDays) === 7 ? ' selected' : ''}>Últimos 7 dias</option>
+            <option value="30"${Number(cfg.scanWindowDays) === 30 ? ' selected' : ''}>Últimos 30 dias</option>
+            <option value="90"${Number(cfg.scanWindowDays) === 90 ? ' selected' : ''}>Últimos 90 dias</option>
+          </select>
+        </div>
+        <div>
+          <label>Limite por verificação</label>
+          <input name="scanLimit" value="${esc(cfg.scanLimit || 100)}" inputmode="numeric">
+        </div>
+      </div>
+      <label>Modelo de IA (Bedrock)</label>
+      <select name="bedrockModelId">${modelOptions}</select>
+      <div class="note">O limite controla quantos e-mails NOVOS são analisados por verificação (protege custo de IA). Rode de novo para continuar de onde parou.</div>
+    </div>
+
+    <div class="card">
+      <h2>Verificação automática</h2>
+      <label>Frequência</label>
+      <select name="scanIntervalHours">
+        <option value="1"${Number(cfg.scanIntervalHours) === 1 ? ' selected' : ''}>A cada 1 hora</option>
+        <option value="3"${Number(cfg.scanIntervalHours) === 3 ? ' selected' : ''}>A cada 3 horas</option>
+        <option value="6"${Number(cfg.scanIntervalHours) === 6 ? ' selected' : ''}>A cada 6 horas</option>
+        <option value="12"${Number(cfg.scanIntervalHours) === 12 ? ' selected' : ''}>A cada 12 horas</option>
+        <option value="24"${Number(cfg.scanIntervalHours) === 24 ? ' selected' : ''}>1 vez por dia</option>
+      </select>
+      <div class="note">Além do agendamento, você pode usar "Verificar agora" na aba de e-mails a qualquer momento.</div>
+    </div>
+
+    <div style="max-width:560px;margin:0 auto">
+      <button type="submit">Salvar configurações</button>
+      <a class="back" href="emails">← Voltar aos e-mails</a>
+    </div>
   </form>
 </body>
 </html>`;
