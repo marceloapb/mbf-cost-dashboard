@@ -1,7 +1,7 @@
 'use strict';
 
-const { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames } = require('./costService');
-const { parseMarginMap, applyMargins, applyMarginToServices, marginFor } = require('./margin');
+const { monthRange, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames } = require('./costService');
+const { parseMarginMap, applyMargins, applyMarginToServices, applyMarginToUsageTypes, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
 const { renderLogin, renderMfa, renderEnroll, renderChangePassword } = require('./loginPage');
 const { loadCredentials, saveTotpSecret, savePasswordHash } = require('./credentials');
@@ -169,6 +169,37 @@ async function buildAccountDetail(accountId) {
     margin,
     current: { period: current.label, ...applyMarginToServices(curSvc, margin) },
     previous: { period: previous.label, ...applyMarginToServices(prevSvc, margin) },
+  };
+}
+
+/**
+ * Detalhe de USO por USAGE_TYPE de UM serviço dentro de uma conta (drill-down de 2º nível),
+ * meses atual e anterior, com a margem da conta aplicada.
+ * @param {string} accountId
+ * @param {string} serviceName
+ */
+async function buildServiceUsageDetail(accountId, serviceName) {
+  const marginMap = parseMarginMap(MARGIN_MAP);
+  const margin = marginFor(marginMap, accountId);
+  const now = new Date();
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const current = monthRange(now);
+  const previous = monthRange(prev);
+
+  const [curUsage, prevUsage, names] = await Promise.all([
+    getUsageByTypeForService(accountId, serviceName, current),
+    getUsageByTypeForService(accountId, serviceName, previous),
+    getAccountNames(),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    accountId,
+    accountName: names[accountId] || accountId,
+    service: serviceName,
+    margin,
+    current: { period: current.label, ...applyMarginToUsageTypes(curUsage, margin) },
+    previous: { period: previous.label, ...applyMarginToUsageTypes(prevUsage, margin) },
   };
 }
 
@@ -350,6 +381,28 @@ exports.handler = async (event) => {
       return json(200, await buildAccountDetail(accountId));
     } catch (err) {
       console.error('Erro detalhe da conta:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
+  // Drill-down 2º nível: uso por USAGE_TYPE de um serviço.
+  // /api/costs/service?id=<accountId>&service=<nome do serviço>
+  if (path === '/api/costs/service') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) {
+      return json(401, { error: 'unauthorized' });
+    }
+    const accountId = event.queryStringParameters?.id;
+    const service = event.queryStringParameters?.service;
+    if (!accountId || !/^\d{12}$/.test(accountId)) {
+      return json(400, { error: 'invalid_account_id' });
+    }
+    if (!service || service.length > 200) {
+      return json(400, { error: 'invalid_service' });
+    }
+    try {
+      return json(200, await buildServiceUsageDetail(accountId, service));
+    } catch (err) {
+      console.error('Erro detalhe do serviço:', err);
       return json(500, { error: 'internal_error', message: err.message });
     }
   }

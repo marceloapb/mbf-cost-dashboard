@@ -90,7 +90,7 @@ function applyMargins(rawCosts, marginMap) {
   return { items, totals };
 }
 
-module.exports = { parseMarginMap, marginFor, applyMargins, applyMarginToServices, round2 };
+module.exports = { parseMarginMap, marginFor, applyMargins, applyMarginToServices, applyMarginToUsageTypes, round2 };
 
 /**
  * Aplica uma margem fixa (da conta) sobre uma lista de custos por serviço.
@@ -109,6 +109,42 @@ function applyMarginToServices(services, margin) {
       margin: m,
       billable,
       profit: round2(billable - cost),
+      usage: Number(s.usage) || 0,
+      unit: s.unit || '',
+    };
+  });
+  const totals = items.reduce(
+    (acc, it) => {
+      acc.cost = round2(acc.cost + it.cost);
+      acc.billable = round2(acc.billable + it.billable);
+      return acc;
+    },
+    { cost: 0, billable: 0 }
+  );
+  totals.profit = round2(totals.billable - totals.cost);
+  return { items, totals };
+}
+
+/**
+ * Aplica a margem da conta sobre uma lista de uso por USAGE_TYPE (drill-down de 2º nível).
+ * Preserva quantidade de uso e unidade (homogêneas por tipo).
+ * @param {Array<{usageType: string, cost: number, usage: number, unit: string}>} rows
+ * @param {number} margin multiplicador da conta
+ * @returns {{items: Array<object>, totals: {cost: number, billable: number, profit: number}}}
+ */
+function applyMarginToUsageTypes(rows, margin) {
+  const m = Number.isFinite(Number(margin)) ? Number(margin) : 1.0;
+  const items = rows.map((s) => {
+    const cost = round2(Number(s.cost) || 0);
+    const billable = round2(cost * m);
+    return {
+      usageType: s.usageType,
+      cost,
+      margin: m,
+      billable,
+      profit: round2(billable - cost),
+      usage: Number(s.usage) || 0,
+      unit: s.unit || '',
     };
   });
   const totals = items.reduce(

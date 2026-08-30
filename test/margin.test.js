@@ -2,7 +2,7 @@
 
 const { test } = require('node:test');
 const assert = require('node:assert');
-const { parseMarginMap, marginFor, applyMargins, round2 } = require('../src/margin');
+const { parseMarginMap, marginFor, applyMargins, applyMarginToServices, applyMarginToUsageTypes, round2 } = require('../src/margin');
 
 test('parseMarginMap: vazio retorna default 1.0', () => {
   assert.deepStrictEqual(parseMarginMap(undefined), { default: 1.0 });
@@ -52,4 +52,48 @@ test('applyMargins: calcula billable e profit corretamente', () => {
 test('round2: arredonda para 2 casas', () => {
   assert.strictEqual(round2(1.005), 1.01);
   assert.strictEqual(round2(2.344), 2.34);
+});
+
+test('applyMarginToServices: preserva usage/unit e calcula billable/profit', () => {
+  const svc = [
+    { service: 'AWS Lambda', cost: 10, usage: 1500, unit: 'Requests' },
+    { service: 'Amazon S3', cost: 5, usage: 20, unit: 'GB-Mo' },
+  ];
+  const { items, totals } = applyMarginToServices(svc, 1.5);
+  const lambda = items.find((i) => i.service === 'AWS Lambda');
+  assert.strictEqual(lambda.usage, 1500);
+  assert.strictEqual(lambda.unit, 'Requests');
+  assert.strictEqual(lambda.billable, 15); // 10 * 1.5
+  assert.strictEqual(lambda.profit, 5);
+  assert.strictEqual(totals.cost, 15);
+  assert.strictEqual(totals.billable, 22.5);
+  assert.strictEqual(totals.profit, 7.5);
+});
+
+test('applyMarginToServices: usage ausente vira 0 e unit vazia', () => {
+  const { items } = applyMarginToServices([{ service: 'X', cost: 1 }], 1.0);
+  assert.strictEqual(items[0].usage, 0);
+  assert.strictEqual(items[0].unit, '');
+});
+
+test('applyMarginToUsageTypes: preserva usageType/usage/unit e aplica margem', () => {
+  const rows = [
+    { usageType: 'Requests-Tier1', cost: 8, usage: 1000000, unit: 'Requests' },
+    { usageType: 'DataTransfer-Out', cost: 2, usage: 12.5, unit: 'GB' },
+  ];
+  const { items, totals } = applyMarginToUsageTypes(rows, 2.0);
+  const t1 = items.find((i) => i.usageType === 'Requests-Tier1');
+  assert.strictEqual(t1.usage, 1000000);
+  assert.strictEqual(t1.unit, 'Requests');
+  assert.strictEqual(t1.billable, 16); // 8 * 2.0
+  assert.strictEqual(t1.profit, 8);
+  assert.strictEqual(totals.cost, 10);
+  assert.strictEqual(totals.billable, 20);
+  assert.strictEqual(totals.profit, 10);
+});
+
+test('applyMarginToUsageTypes: margem inválida cai para 1.0', () => {
+  const { items } = applyMarginToUsageTypes([{ usageType: 'X', cost: 5, usage: 1, unit: 'u' }], 'abc');
+  assert.strictEqual(items[0].margin, 1.0);
+  assert.strictEqual(items[0].billable, 5);
 });

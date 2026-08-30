@@ -81,7 +81,7 @@ async function getCostByServiceForAccount(accountId, period) {
   const cmd = new GetCostAndUsageCommand({
     TimePeriod: { Start: period.Start, End: period.End },
     Granularity: 'MONTHLY',
-    Metrics: ['UnblendedCost'],
+    Metrics: ['UnblendedCost', 'UsageQuantity'],
     GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
     Filter: {
       Dimensions: {
@@ -96,9 +96,48 @@ async function getCostByServiceForAccount(accountId, period) {
     .map((g) => ({
       service: g.Keys?.[0] || 'unknown',
       cost: Number(g.Metrics?.UnblendedCost?.Amount || 0),
+      usage: Number(g.Metrics?.UsageQuantity?.Amount || 0),
+      unit: g.Metrics?.UsageQuantity?.Unit || '',
     }))
     .filter((s) => s.cost !== 0)
     .sort((a, b) => b.cost - a.cost);
 }
 
-module.exports = { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames };
+/**
+ * Busca o uso por USAGE_TYPE de UM serviço dentro de uma conta, no período dado.
+ * Diferente do agrupamento por SERVICE, aqui a quantidade de uso é homogênea por tipo
+ * (a unidade é consistente dentro de cada USAGE_TYPE), então o número faz sentido.
+ * Usado no drill-down de 2º nível (clicar num serviço dentro do modal da conta).
+ * @param {string} accountId conta vinculada (LINKED_ACCOUNT)
+ * @param {string} serviceName nome do serviço (mesma string do GroupBy SERVICE)
+ * @param {{Start: string, End: string}} period
+ * @returns {Promise<Array<{usageType: string, cost: number, usage: number, unit: string}>>}
+ *          ordenado por custo desc
+ */
+async function getUsageByTypeForService(accountId, serviceName, period) {
+  const cmd = new GetCostAndUsageCommand({
+    TimePeriod: { Start: period.Start, End: period.End },
+    Granularity: 'MONTHLY',
+    Metrics: ['UnblendedCost', 'UsageQuantity'],
+    GroupBy: [{ Type: 'DIMENSION', Key: 'USAGE_TYPE' }],
+    Filter: {
+      And: [
+        { Dimensions: { Key: 'LINKED_ACCOUNT', Values: [accountId] } },
+        { Dimensions: { Key: 'SERVICE', Values: [serviceName] } },
+      ],
+    },
+  });
+  const res = await ce.send(cmd);
+  const groups = (res.ResultsByTime?.[0]?.Groups) || [];
+  return groups
+    .map((g) => ({
+      usageType: g.Keys?.[0] || 'unknown',
+      cost: Number(g.Metrics?.UnblendedCost?.Amount || 0),
+      usage: Number(g.Metrics?.UsageQuantity?.Amount || 0),
+      unit: g.Metrics?.UsageQuantity?.Unit || '',
+    }))
+    .filter((s) => s.cost !== 0 || s.usage !== 0)
+    .sort((a, b) => b.cost - a.cost);
+}
+
+module.exports = { monthRange, getCostByAccount, getCostByServiceForAccount, getUsageByTypeForService, getAccountNames };

@@ -116,6 +116,8 @@ function renderDashboard(payload, username) {
     .modal .close { float:right; cursor:pointer; color:var(--mut); font-size:20px; line-height:1; border:0; background:none; }
     .modal .loading { color:var(--mut); padding:20px; text-align:center; }
     .modal h4 { font-size:13px; color:var(--mut); margin:16px 0 6px; font-weight:600; }
+    .svc-row { cursor:pointer; transition:background .12s; }
+    .svc-row:hover { background:#20242e; }
   </style>
 </head>
 <body>
@@ -152,33 +154,83 @@ function renderDashboard(payload, username) {
       function usd(n) {
         return '$' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
       }
+      function qty(n) {
+        var v = Number(n || 0);
+        return v.toLocaleString('en-US', { maximumFractionDigits: 3 });
+      }
       function esc(s) {
         return String(s).replace(/[&<>"]/g, function (c) {
           return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c];
         });
       }
-      function block(label, b) {
+      function block(label, b, accId) {
         var rows = (b.items || []).map(function (it) {
-          return '<tr><td>' + esc(it.service) + '</td><td class="num">' + usd(it.cost) +
+          var uso = it.usage ? qty(it.usage) + (it.unit ? ' ' + esc(it.unit) : '') : '—';
+          return '<tr class="svc-row" data-account-id="' + esc(accId) + '" data-service="' + esc(it.service) +
+            '" title="Ver uso por tipo"><td>' + esc(it.service) + ' <span class="chev">›</span></td>' +
+            '<td class="num">' + uso + '</td>' +
+            '<td class="num">' + usd(it.cost) +
             '</td><td class="num">' + Number(it.margin).toFixed(2) + 'x</td><td class="num billable">' +
             usd(it.billable) + '</td><td class="num profit">' + usd(it.profit) + '</td></tr>';
         }).join('');
-        if (!rows) rows = '<tr><td colspan="5" class="empty">Sem custos neste período.</td></tr>';
+        if (!rows) rows = '<tr><td colspan="6" class="empty">Sem custos neste período.</td></tr>';
         return '<h4>' + esc(label) + ' · ' + esc(b.period) + '</h4>' +
-          '<table><thead><tr><th>Serviço AWS</th><th class="num">Custo</th><th class="num">Margem</th>' +
+          '<table><thead><tr><th>Serviço AWS</th><th class="num">Uso</th><th class="num">Custo</th><th class="num">Margem</th>' +
           '<th class="num">A cobrar</th><th class="num">Lucro</th></tr></thead><tbody>' + rows +
-          '</tbody><tfoot><tr><td>Total</td><td class="num">' + usd(b.totals.cost) +
+          '</tbody><tfoot><tr><td>Total</td><td class="num">—</td><td class="num">' + usd(b.totals.cost) +
           '</td><td class="num">—</td><td class="num billable">' + usd(b.totals.billable) +
           '</td><td class="num profit">' + usd(b.totals.profit) + '</td></tr></tfoot></table>';
+      }
+      // Drill-down de 2º nível: uso por USAGE_TYPE de um serviço.
+      function usageBlock(label, b) {
+        var rows = (b.items || []).map(function (it) {
+          var uso = it.usage ? qty(it.usage) + (it.unit ? ' ' + esc(it.unit) : '') : '—';
+          return '<tr><td>' + esc(it.usageType) + '</td><td class="num">' + uso +
+            '</td><td class="num">' + usd(it.cost) + '</td><td class="num billable">' + usd(it.billable) +
+            '</td><td class="num profit">' + usd(it.profit) + '</td></tr>';
+        }).join('');
+        if (!rows) rows = '<tr><td colspan="5" class="empty">Sem uso neste período.</td></tr>';
+        return '<h4>' + esc(label) + ' · ' + esc(b.period) + '</h4>' +
+          '<table><thead><tr><th>Tipo de uso</th><th class="num">Uso</th><th class="num">Custo</th>' +
+          '<th class="num">A cobrar</th><th class="num">Lucro</th></tr></thead><tbody>' + rows +
+          '</tbody><tfoot><tr><td>Total</td><td class="num">—</td><td class="num">' + usd(b.totals.cost) +
+          '</td><td class="num billable">' + usd(b.totals.billable) +
+          '</td><td class="num profit">' + usd(b.totals.profit) + '</td></tr></tfoot></table>';
+      }
+      function bindServiceRows() {
+        body.querySelectorAll('.svc-row').forEach(function (row) {
+          row.addEventListener('click', function () {
+            openService(row.getAttribute('data-account-id'), row.getAttribute('data-service'));
+          });
+        });
+      }
+      // Abre o detalhe de uso por tipo de um serviço (2º nível).
+      function openService(id, service) {
+        title.textContent = 'Uso por tipo';
+        accEl.textContent = service + ' · ' + id;
+        body.innerHTML = '<div class="loading">Carregando…</div>' +
+          '<div style="margin-top:12px"><a href="#" id="backSvc" class="ulink">← Voltar aos serviços</a></div>';
+        var back = document.getElementById('backSvc');
+        if (back) back.addEventListener('click', function (e) { e.preventDefault(); open(id, accEl.getAttribute('data-name') || id); });
+        fetch('api/costs/service?id=' + encodeURIComponent(id) + '&service=' + encodeURIComponent(service), { credentials: 'same-origin' })
+          .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+          .then(function (d) {
+            body.innerHTML = '<div style="margin-bottom:12px"><a href="#" id="backSvc2" class="ulink">← Voltar aos serviços</a></div>' +
+              usageBlock('Mês atual', d.current) + usageBlock('Mês anterior', d.previous);
+            var b2 = document.getElementById('backSvc2');
+            if (b2) b2.addEventListener('click', function (e) { e.preventDefault(); open(id, accEl.getAttribute('data-name') || id); });
+          })
+          .catch(function (e) { body.innerHTML = '<div class="loading">Erro ao carregar: ' + esc(e.message) + '</div>'; });
       }
       function open(id, name) {
         title.textContent = 'Detalhe por serviço';
         accEl.textContent = name + ' · ' + id;
+        accEl.setAttribute('data-name', name);
         body.innerHTML = '<div class="loading">Carregando…</div>';
         bg.classList.add('open');
         fetch('api/costs/account?id=' + encodeURIComponent(id), { credentials: 'same-origin' })
           .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-          .then(function (d) { body.innerHTML = block('Mês atual', d.current) + block('Mês anterior', d.previous); })
+          .then(function (d) { body.innerHTML = block('Mês atual', d.current, id) + block('Mês anterior', d.previous, id); bindServiceRows(); })
           .catch(function (e) { body.innerHTML = '<div class="loading">Erro ao carregar: ' + esc(e.message) + '</div>'; });
       }
       function close() { bg.classList.remove('open'); }
