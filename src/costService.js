@@ -70,4 +70,35 @@ async function getAccountNames() {
   return names;
 }
 
-module.exports = { monthRange, getCostByAccount, getAccountNames };
+/**
+ * Busca custo por SERVIÇO AWS de uma conta específica, no período dado.
+ * Usado no drill-down analítico (clicar numa conta).
+ * @param {string} accountId conta vinculada (LINKED_ACCOUNT)
+ * @param {{Start: string, End: string}} period
+ * @returns {Promise<Array<{service: string, cost: number}>>} ordenado por custo desc
+ */
+async function getCostByServiceForAccount(accountId, period) {
+  const cmd = new GetCostAndUsageCommand({
+    TimePeriod: { Start: period.Start, End: period.End },
+    Granularity: 'MONTHLY',
+    Metrics: ['UnblendedCost'],
+    GroupBy: [{ Type: 'DIMENSION', Key: 'SERVICE' }],
+    Filter: {
+      Dimensions: {
+        Key: 'LINKED_ACCOUNT',
+        Values: [accountId],
+      },
+    },
+  });
+  const res = await ce.send(cmd);
+  const groups = (res.ResultsByTime?.[0]?.Groups) || [];
+  return groups
+    .map((g) => ({
+      service: g.Keys?.[0] || 'unknown',
+      cost: Number(g.Metrics?.UnblendedCost?.Amount || 0),
+    }))
+    .filter((s) => s.cost !== 0)
+    .sort((a, b) => b.cost - a.cost);
+}
+
+module.exports = { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames };

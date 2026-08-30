@@ -1,7 +1,7 @@
 'use strict';
 
-const { monthRange, getCostByAccount, getAccountNames } = require('./costService');
-const { parseMarginMap, applyMargins } = require('./margin');
+const { monthRange, getCostByAccount, getCostByServiceForAccount, getAccountNames } = require('./costService');
+const { parseMarginMap, applyMargins, applyMarginToServices, marginFor } = require('./margin');
 const { renderDashboard } = require('./dashboard');
 const { renderLogin, renderEnroll } = require('./loginPage');
 const { loadCredentials, saveTotpSecret } = require('./credentials');
@@ -139,6 +139,35 @@ async function buildCostPayload() {
   };
 }
 
+/**
+ * Detalhe analítico de UMA conta: custo por serviço AWS (mês atual e anterior),
+ * com a margem da conta aplicada.
+ * @param {string} accountId
+ */
+async function buildAccountDetail(accountId) {
+  const marginMap = parseMarginMap(MARGIN_MAP);
+  const margin = marginFor(marginMap, accountId);
+  const now = new Date();
+  const prev = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 1, 1));
+  const current = monthRange(now);
+  const previous = monthRange(prev);
+
+  const [curSvc, prevSvc, names] = await Promise.all([
+    getCostByServiceForAccount(accountId, current),
+    getCostByServiceForAccount(accountId, previous),
+    getAccountNames(),
+  ]);
+
+  return {
+    generatedAt: new Date().toISOString(),
+    accountId,
+    accountName: names[accountId] || accountId,
+    margin,
+    current: { period: current.label, ...applyMarginToServices(curSvc, margin) },
+    previous: { period: previous.label, ...applyMarginToServices(prevSvc, margin) },
+  };
+}
+
 exports.handler = async (event) => {
   const { method, path } = routeInfo(event);
 
@@ -247,6 +276,23 @@ exports.handler = async (event) => {
   }
 
   // API JSON — aceita sessão OU token de API
+  // Drill-down analítico: custo por serviço de uma conta. /api/costs/account?id=<accountId>
+  if (path === '/api/costs/account') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) {
+      return json(401, { error: 'unauthorized' });
+    }
+    const accountId = event.queryStringParameters?.id;
+    if (!accountId || !/^\d{12}$/.test(accountId)) {
+      return json(400, { error: 'invalid_account_id' });
+    }
+    try {
+      return json(200, await buildAccountDetail(accountId));
+    } catch (err) {
+      console.error('Erro detalhe da conta:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
   if (path === '/api/costs') {
     const user = await sessionUser(event);
     if (!user && !(await apiTokenOk(event))) {

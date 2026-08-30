@@ -90,4 +90,35 @@ function applyMargins(rawCosts, marginMap) {
   return { items, totals };
 }
 
-module.exports = { parseMarginMap, marginFor, applyMargins, round2 };
+module.exports = { parseMarginMap, marginFor, applyMargins, applyMarginToServices, round2 };
+
+/**
+ * Aplica uma margem fixa (da conta) sobre uma lista de custos por serviço.
+ * @param {Array<{service: string, cost: number}>} services
+ * @param {number} margin multiplicador da conta
+ * @returns {{items: Array<object>, totals: {cost: number, billable: number, profit: number}}}
+ */
+function applyMarginToServices(services, margin) {
+  const m = Number.isFinite(Number(margin)) ? Number(margin) : 1.0;
+  const items = services.map((s) => {
+    const cost = round2(Number(s.cost) || 0);
+    const billable = round2(cost * m);
+    return {
+      service: s.service,
+      cost,
+      margin: m,
+      billable,
+      profit: round2(billable - cost),
+    };
+  });
+  const totals = items.reduce(
+    (acc, it) => {
+      acc.cost = round2(acc.cost + it.cost);
+      acc.billable = round2(acc.billable + it.billable);
+      return acc;
+    },
+    { cost: 0, billable: 0 }
+  );
+  totals.profit = round2(totals.billable - totals.cost);
+  return { items, totals };
+}
