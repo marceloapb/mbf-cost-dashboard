@@ -612,6 +612,23 @@ exports.handler = async (event) => {
     }
   }
 
+  // Registrar token FCM do dispositivo (app Android). Sessão OU token de API.
+  if (path === '/api/push/register' && method === 'POST') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    const b = parseBody(event);
+    const token = (b.token || '').trim();
+    if (!token) return json(400, { error: 'missing_token' });
+    try {
+      const pushStore = require('./pushStore');
+      const novo = await pushStore.registerToken(token);
+      return json(200, { ok: true, novo });
+    } catch (err) {
+      console.error('Erro ao registrar push token:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
+
   // API JSON — aceita sessão OU token de API
   // Drill-down analítico: custo por serviço de uma conta. /api/costs/account?id=<accountId>
   if (path === '/api/costs/account') {

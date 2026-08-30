@@ -3,6 +3,7 @@
 const { loadImapConfig } = require('./emailConfig');
 const { fetchAllAwsEmails } = require('./imapClient');
 const store = require('./emailStore');
+const { notifyAll } = require('./notifier');
 
 /**
  * Coleta (SEM IA): lê as caixas IMAP, filtra por remetente OU palavra-chave de assunto,
@@ -19,6 +20,7 @@ async function runScan(opts = {}) {
   const { emails, errors } = await fetchAllAwsEmails(config, opts);
   let novos = 0;
   const erros = [...errors];
+  const novosAssuntos = [];
 
   for (const mail of emails) {
     try {
@@ -36,10 +38,17 @@ async function runScan(opts = {}) {
         body: (mail.text || '').slice(0, 20000), // guardado para análise sob demanda
       };
       const gravou = await store.putIfNew(record);
-      if (gravou) novos += 1;
+      if (gravou) { novos += 1; novosAssuntos.push(mail.subject || '(sem assunto)'); }
     } catch (err) {
       erros.push({ messageId: mail.messageId, error: err.message });
     }
+  }
+
+  // Notificação push (falha suave): avisa quando houver e-mail(s) novo(s).
+  if (novos > 0) {
+    const title = novos === 1 ? 'Novo e-mail da AWS' : `${novos} novos e-mails da AWS`;
+    const body = novos === 1 ? novosAssuntos[0].slice(0, 120) : novosAssuntos.slice(0, 3).join(' • ').slice(0, 200);
+    await notifyAll({ title, body, data: { tipo: 'novo-email', qtd: String(novos) } });
   }
 
   return { scanned: emails.length, novos, erros };
