@@ -1,5 +1,7 @@
 'use strict';
 
+const { FAVICON_TAG } = require('./brand');
+
 /**
  * Página de login (etapa 1: usuário + senha). Faz POST para /login.
  * Se as credenciais conferem e o MFA está ativo, o servidor responde com a tela de MFA
@@ -15,6 +17,7 @@ function renderLogin(error) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Login</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; }
@@ -68,6 +71,7 @@ function renderMfa(p, error) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Verificação em duas etapas</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; }
@@ -126,6 +130,7 @@ function renderEnroll(p, error) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Configurar verificação em duas etapas</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; }
@@ -197,6 +202,7 @@ function renderEmails(p) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — E-mails AWS</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }
@@ -319,6 +325,7 @@ function renderImapConfig(p, error, ok) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Configuração IMAP</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }
@@ -378,6 +385,7 @@ function renderChangePassword(p, error, ok) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Trocar senha</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --acc:#5b9dff; --ok:#3ddc97; }

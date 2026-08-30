@@ -1,5 +1,7 @@
 'use strict';
 
+const { FAVICON_TAG } = require('./brand');
+
 /**
  * Renderiza o dashboard HTML a partir do payload de custos.
  * Sem dependências externas — HTML/CSS inline.
@@ -97,6 +99,7 @@ function renderDashboard(payload, username) {
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  ${FAVICON_TAG}
   <title>MBF — Painel de Custos</title>
   <style>
     :root { --bg:#0f1115; --card:#1a1d24; --line:#2a2f3a; --txt:#e6e8ee; --mut:#8b93a7; --ok:#3ddc97; --acc:#5b9dff; }
