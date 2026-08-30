@@ -67,6 +67,7 @@ Resources:
                 - ssm:GetParametersByPath
                 - ssm:GetParameter
                 - ssm:GetParameters
+                - ssm:PutParameter
               Resource:
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard'
                 - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:parameter/mbf/${Stage}/cost-dashboard/*'

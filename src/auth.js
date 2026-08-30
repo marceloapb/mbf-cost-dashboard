@@ -79,6 +79,55 @@ function verifySession(token, secret) {
 }
 
 /**
+ * Cria um token de enrollment pendente: assina (secret TOTP + username + validade) com HMAC,
+ * usando o session-secret. Serve para transportar o secret proposto entre a tela de enrollment
+ * e a confirmação, SEM gravá-lo em lugar nenhum antes de o usuário provar posse do código.
+ * Formato: base64url(payload).assinaturaHMAC
+ * @param {string} username
+ * @param {string} totpSecret secret TOTP proposto (Base32)
+ * @param {string} secret segredo HMAC (session-secret)
+ * @param {number} [ttlSeconds=600] validade do enrollment (default 10 min)
+ * @returns {string}
+ */
+function createEnrollmentToken(username, totpSecret, secret, ttlSeconds = 600) {
+  const payload = {
+    u: username,
+    s: totpSecret,
+    exp: Math.floor(Date.now() / 1000) + ttlSeconds,
+    k: 'enroll',
+  };
+  const body = Buffer.from(JSON.stringify(payload)).toString('base64url');
+  const sig = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  return `${body}.${sig}`;
+}
+
+/**
+ * Valida um token de enrollment pendente. Retorna { username, totpSecret } se válido e não
+ * expirado, senão null.
+ * @param {string} token
+ * @param {string} secret segredo HMAC (session-secret)
+ * @returns {{username: string, totpSecret: string}|null}
+ */
+function verifyEnrollmentToken(token, secret) {
+  if (!token || !token.includes('.')) return null;
+  const [body, sig] = token.split('.');
+  const expected = crypto.createHmac('sha256', secret).update(body).digest('base64url');
+  const a = Buffer.from(sig);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  let payload;
+  try {
+    payload = JSON.parse(Buffer.from(body, 'base64url').toString('utf8'));
+  } catch {
+    return null;
+  }
+  if (payload.k !== 'enroll') return null;
+  if (!payload.exp || payload.exp < Math.floor(Date.now() / 1000)) return null;
+  if (!payload.u || !payload.s) return null;
+  return { username: payload.u, totpSecret: payload.s };
+}
+
+/**
  * Extrai o valor de um cookie a partir do header Cookie.
  * @param {string|undefined} cookieHeader
  * @param {string} name
@@ -118,6 +167,8 @@ module.exports = {
   verifyPassword,
   createSession,
   verifySession,
+  createEnrollmentToken,
+  verifyEnrollmentToken,
   readCookie,
   buildSessionCookie,
   buildLogoutCookie,

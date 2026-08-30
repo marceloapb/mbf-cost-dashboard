@@ -3,13 +3,15 @@
 const { monthRange, getCostByAccount, getAccountNames } = require('./costService');
 const { parseMarginMap, applyMargins } = require('./margin');
 const { renderDashboard } = require('./dashboard');
-const { renderLogin } = require('./loginPage');
-const { loadCredentials } = require('./credentials');
+const { renderLogin, renderEnroll } = require('./loginPage');
+const { loadCredentials, saveTotpSecret } = require('./credentials');
 const totp = require('./totp');
 const {
   verifyPassword,
   createSession,
   verifySession,
+  createEnrollmentToken,
+  verifyEnrollmentToken,
   readCookie,
   buildSessionCookie,
   buildLogoutCookie,
@@ -152,9 +154,64 @@ exports.handler = async (event) => {
     ) {
       return html(401, renderLogin('Usuário ou senha inválidos.', mfaEnabled));
     }
-    // Se o MFA estiver configurado, o código TOTP é obrigatório e precisa ser válido.
-    if (mfaEnabled && !totp.verify(code || '', creds.totpSecret)) {
+    // Sem MFA configurado ainda → inicia o enrollment (primeiro login).
+    if (!mfaEnabled) {
+      const secret = totp.generateSecret();
+      const otpauth = totp.otpauthURL(secret, {
+        issuer: 'MBF Cost Dashboard',
+        account: creds.username,
+      });
+      const enrollToken = createEnrollmentToken(creds.username, secret, creds.sessionSecret);
+      return html(
+        200,
+        renderEnroll({ username: creds.username, secret, otpauth, enrollToken })
+      );
+    }
+    // MFA já ativo → código TOTP obrigatório.
+    if (!totp.verify(code || '', creds.totpSecret)) {
       return html(401, renderLogin('Código de verificação inválido.', mfaEnabled));
+    }
+    const token = createSession(creds.username, creds.sessionSecret);
+    return redirect('.', { 'Set-Cookie': buildSessionCookie(token) });
+  }
+  // Confirmação do enrollment de MFA (primeiro login): valida o 1º código e grava o secret.
+  if (path === '/enroll' && method === 'POST') {
+    const { enroll, code } = parseBody(event);
+    let creds;
+    try {
+      creds = await loadCredentials();
+    } catch (err) {
+      console.error('Erro ao carregar credenciais (enroll):', err);
+      return html(500, renderLogin('Erro interno de configuração.'));
+    }
+    // Se o MFA já foi ativado nesse meio tempo, manda para o login normal.
+    if (creds.totpSecret) {
+      return redirect('login');
+    }
+    const pending = verifyEnrollmentToken(enroll || '', creds.sessionSecret);
+    if (!pending || pending.username !== creds.username) {
+      return html(400, renderLogin('Sessão de configuração expirada. Entre novamente.'));
+    }
+    if (!totp.verify(code || '', pending.totpSecret)) {
+      // Reexibe a mesma tela de enrollment (mesmo secret pendente) com erro.
+      const otpauth = totp.otpauthURL(pending.totpSecret, {
+        issuer: 'MBF Cost Dashboard',
+        account: creds.username,
+      });
+      return html(
+        401,
+        renderEnroll(
+          { username: creds.username, secret: pending.totpSecret, otpauth, enrollToken: enroll },
+          'Código inválido. Tente o código atual do aplicativo.'
+        )
+      );
+    }
+    // Código confere → grava o secret no SSM (SecureString) e cria a sessão.
+    try {
+      await saveTotpSecret(pending.totpSecret);
+    } catch (err) {
+      console.error('Erro ao gravar totp-secret:', err);
+      return html(500, renderLogin('Não foi possível salvar a configuração de MFA.'));
     }
     const token = createSession(creds.username, creds.sessionSecret);
     return redirect('.', { 'Set-Cookie': buildSessionCookie(token) });

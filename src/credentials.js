@@ -1,6 +1,6 @@
 'use strict';
 
-const { SSMClient, GetParametersByPathCommand } = require('@aws-sdk/client-ssm');
+const { SSMClient, GetParametersByPathCommand, PutParameterCommand } = require('@aws-sdk/client-ssm');
 
 const ssm = new SSMClient({ region: 'us-east-1' });
 const PREFIX = process.env.SSM_PREFIX || '/mbf/prod/cost-dashboard';
@@ -44,4 +44,24 @@ async function loadCredentials() {
   return cache;
 }
 
-module.exports = { loadCredentials, PREFIX };
+module.exports = { loadCredentials, saveTotpSecret, PREFIX };
+
+/**
+ * Grava o secret TOTP no SSM como SecureString e invalida o cache local.
+ * Usado no enrollment de MFA (primeiro login).
+ * @param {string} totpSecret secret em Base32
+ * @returns {Promise<void>}
+ */
+async function saveTotpSecret(totpSecret) {
+  await ssm.send(
+    new PutParameterCommand({
+      Name: `${PREFIX}/totp-secret`,
+      Value: totpSecret,
+      Type: 'SecureString',
+      Overwrite: true,
+    })
+  );
+  // Invalida o cache para que o próximo carregamento já veja o MFA habilitado.
+  cache = null;
+  cacheAt = 0;
+}
