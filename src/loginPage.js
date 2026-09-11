@@ -239,6 +239,23 @@ function renderEmails(p) {
     .aihint { color:var(--mut); font-size:12px; }
     .acoes { margin:4px 0 0; padding-left:18px; }
     .empty { max-width:960px; margin:0 auto; color:var(--mut); text-align:center; padding:40px; }
+    /* Painel de log de conexão / scan */
+    .logpanel { max-width:960px; margin:0 auto 16px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 16px; }
+    .logpanel .loghead { display:flex; justify-content:space-between; align-items:center; gap:12px; cursor:pointer; }
+    .logpanel .logtitle { font-weight:600; font-size:14px; display:flex; align-items:center; gap:8px; }
+    .logpanel .logbody { margin-top:10px; padding-top:10px; border-top:1px solid var(--line); display:none; }
+    .logpanel.open .logbody { display:block; }
+    .logpanel .toggle { color:var(--mut); font-size:12px; }
+    .dot { width:9px; height:9px; border-radius:999px; display:inline-block; }
+    .dot-ok { background:var(--ok); }
+    .dot-err { background:#ff6b6b; }
+    .dot-idle { background:var(--mut); }
+    .logmeta { color:var(--mut); font-size:12px; }
+    .boxlist { list-style:none; margin:8px 0 0; padding:0; }
+    .boxlist li { display:flex; align-items:center; gap:8px; padding:4px 0; font-size:13px; }
+    .boxlist .berr { color:#ffb4b4; font-size:12px; }
+    .logerr { margin:8px 0 0; padding:8px 10px; background:#3a1d1d; border:1px solid #5a2a2a; border-radius:8px; color:#ffb4b4; font-size:13px; }
+    .logstat { color:var(--txt); font-size:13px; margin-top:6px; }
   </style>
 </head>
 <body>
@@ -251,6 +268,13 @@ function renderEmails(p) {
     <button id="analyzeAllBtn">🤖 Analisar todos pendentes</button>
     <span class="hint" id="scanHint">Usuário: ${user}</span>
   </div>
+  <div class="logpanel" id="logPanel">
+    <div class="loghead" id="logHead">
+      <span class="logtitle"><span class="dot dot-idle" id="logDot"></span> <span id="logSummary">Log de conexão — carregando…</span></span>
+      <span class="toggle" id="logToggle">detalhes ▾</span>
+    </div>
+    <div class="logbody" id="logBody"><div class="logmeta">Sem execuções registradas ainda.</div></div>
+  </div>
   <div id="listArea"><div class="empty">Carregando…</div></div>
 
   <script>
@@ -258,7 +282,59 @@ function renderEmails(p) {
       var listArea = document.getElementById('listArea');
       var scanBtn = document.getElementById('scanBtn');
       var scanHint = document.getElementById('scanHint');
+      var logPanel = document.getElementById('logPanel');
+      var logDot = document.getElementById('logDot');
+      var logSummary = document.getElementById('logSummary');
+      var logBody = document.getElementById('logBody');
       function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+      function fmtWhen(iso){
+        if(!iso) return '';
+        try { var d = new Date(iso); return d.toLocaleString('pt-BR'); } catch(e){ return String(iso); }
+      }
+      function renderLog(last){
+        if(!last){
+          logDot.className = 'dot dot-idle';
+          logSummary.textContent = 'Nenhuma verificação registrada ainda.';
+          logBody.innerHTML = '<div class="logmeta">Clique em "Buscar e-mails" para executar a primeira verificação.</div>';
+          return;
+        }
+        var boxes = last.boxes || [];
+        var okCount = boxes.filter(function(b){ return b.ok; }).length;
+        var total = boxes.length;
+        var isOk = !!last.ok;
+        logDot.className = 'dot ' + (isOk ? 'dot-ok' : 'dot-err');
+        var when = fmtWhen(last.finishedAt);
+        var trig = last.trigger === 'agendado' ? ' (agendado)' : '';
+        logSummary.textContent = (isOk ? 'Conexão OK' : 'Falha na conexão')
+          + ' · ' + when + trig;
+        var html = '';
+        html += '<div class="logstat">Caixas conectadas: <b>' + okCount + '/' + total + '</b>'
+          + ' · E-mails encontrados: <b>' + (last.scanned||0) + '</b>'
+          + ' · Novos: <b>' + (last.novos||0) + '</b></div>';
+        if(total){
+          html += '<ul class="boxlist">' + boxes.map(function(b){
+            return '<li><span class="dot ' + (b.ok?'dot-ok':'dot-err') + '"></span>'
+              + '<span>' + esc(b.user || '(conta)') + '</span>'
+              + (b.ok ? '<span class="logmeta">— ' + (b.matched||0) + ' e-mail(s)</span>'
+                      : '<span class="berr">— ' + esc(b.error||'falhou') + '</span>')
+              + '</li>';
+          }).join('') + '</ul>';
+        }
+        var erros = (last.erros || []).filter(function(e){ return e && e.error && !boxes.some(function(b){ return b.user===e.user; }); });
+        if(erros.length){
+          html += '<div class="logerr">' + erros.map(function(e){
+            return esc((e.user ? e.user + ': ' : '') + e.error);
+          }).join('<br>') + '</div>';
+        }
+        logBody.innerHTML = html;
+      }
+      function loadLog(){
+        fetch('api/emails/scan-log', { credentials:'same-origin' })
+          .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); })
+          .then(function(d){ renderLog(d.last || null); })
+          .catch(function(e){ logSummary.textContent = 'Log indisponível: ' + esc(e.message); logDot.className = 'dot dot-idle'; });
+      }
+      document.getElementById('logHead').addEventListener('click', function(){ logPanel.classList.toggle('open'); });
       function badge(u){ u = u || 'informativo'; return '<span class="badge u-'+esc(u)+'">'+esc(u.toUpperCase())+'</span>'; }
       function render(items){
         if(!items || !items.length){ listArea.innerHTML = '<div class="empty">Nenhum e-mail coletado ainda. Configure em ⚙️ Configurações e clique em Buscar e-mails.</div>'; return; }
@@ -313,8 +389,8 @@ function renderEmails(p) {
           .then(function(){
             var tries = 0;
             var timer = setInterval(function(){
-              tries++; load();
-              if (tries >= 6) { clearInterval(timer); scanBtn.disabled = false; scanHint.textContent = 'Lista atualizada.'; }
+              tries++; load(); loadLog();
+              if (tries >= 6) { clearInterval(timer); scanBtn.disabled = false; scanHint.textContent = 'Verificação concluída — veja o log de conexão acima.'; }
               else { scanHint.textContent = 'Buscando em segundo plano… (' + tries + ')'; }
             }, 4000);
           })
@@ -336,6 +412,7 @@ function renderEmails(p) {
           .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); analyzeAllBtn.disabled = false; });
       });
       load();
+      loadLog();
     })();
   </script>
 </body>

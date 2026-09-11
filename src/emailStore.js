@@ -53,10 +53,10 @@ async function putIfNew(item) {
  * @returns {Promise<Array<object>>}
  */
 async function list(limit = 200) {
-  const res = await ddb.send(new ScanCommand({ TableName: TABLE, Limit: limit }));
-  const items = res.Items || [];
+  const res = await ddb.send(new ScanCommand({ TableName: TABLE }));
+  const items = (res.Items || []).filter((it) => it.type !== 'scanlog');
   items.sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  return items;
+  return items.slice(0, limit);
 }
 
 /**
@@ -112,4 +112,68 @@ async function updateAnalysis(messageId, analysis) {
   );
 }
 
-module.exports = { exists, putIfNew, list, markRead, getById, updateAnalysis, TABLE };
+// Prefixo usado no messageId para diferenciar registros de LOG de scan dos e-mails reais.
+const SCANLOG_PREFIX = 'scanlog#';
+
+/**
+ * Grava um registro de log de uma execução de scan (conexão IMAP + coleta).
+ * Reaproveita a tabela de e-mails: o item usa messageId = "scanlog#<timestamp>" para
+ * não colidir com e-mails reais (que têm Message-ID normais).
+ * @param {{scanned:number, novos:number, erros:Array, boxes?:Array, trigger?:string}} result
+ * @returns {Promise<object>} o registro gravado
+ */
+async function putScanLog(result) {
+  const now = new Date().toISOString();
+  const erros = Array.isArray(result.erros) ? result.erros : [];
+  const record = {
+    messageId: `${SCANLOG_PREFIX}${now}`,
+    type: 'scanlog',
+    finishedAt: now,
+    // date usado só para ordenação no list() de e-mails; aqui é inofensivo pois filtramos por prefixo.
+    date: now,
+    trigger: result.trigger || 'manual',
+    ok: erros.length === 0,
+    scanned: Number(result.scanned || 0),
+    novos: Number(result.novos || 0),
+    erros,
+    boxes: Array.isArray(result.boxes) ? result.boxes : [],
+  };
+  try {
+    await ddb.send(new PutCommand({ TableName: TABLE, Item: record }));
+  } catch (err) {
+    // Log não deve derrubar o scan: falha suave.
+    console.error('Falha ao gravar scan log:', err.message);
+  }
+  return record;
+}
+
+/**
+ * Lista os registros de log de scan mais recentes (desc por finishedAt).
+ * @param {number} [limit=20]
+ * @returns {Promise<Array<object>>}
+ */
+async function listScanLogs(limit = 20) {
+  const res = await ddb.send(
+    new ScanCommand({
+      TableName: TABLE,
+      FilterExpression: '#t = :t',
+      ExpressionAttributeNames: { '#t': 'type' },
+      ExpressionAttributeValues: { ':t': 'scanlog' },
+    })
+  );
+  const items = res.Items || [];
+  items.sort((a, b) => String(b.finishedAt || '').localeCompare(String(a.finishedAt || '')));
+  return items.slice(0, limit);
+}
+
+module.exports = {
+  exists,
+  putIfNew,
+  list,
+  markRead,
+  getById,
+  updateAnalysis,
+  putScanLog,
+  listScanLogs,
+  TABLE,
+};

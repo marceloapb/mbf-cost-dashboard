@@ -9,15 +9,18 @@ const { notifyAll } = require('./notifier');
  * Coleta (SEM IA): lê as caixas IMAP, filtra por remetente OU palavra-chave de assunto,
  * e grava os e-mails novos com status "pendente" (analyzed=false), guardando o corpo
  * para análise posterior sob demanda. NÃO chama o Bedrock.
- * @param {{max?:number}} [opts]
- * @returns {Promise<{scanned:number, novos:number, erros:Array}>}
+ * @param {{max?:number, trigger?:string}} [opts]
+ * @returns {Promise<{scanned:number, novos:number, erros:Array, boxes:Array, trigger:string}>}
  */
 async function runScan(opts = {}) {
+  const trigger = opts.trigger || 'manual';
   const config = await loadImapConfig();
   if (!config.host || !config.mailboxes.length) {
-    return { scanned: 0, novos: 0, erros: [{ error: 'IMAP não configurado' }] };
+    const result = { scanned: 0, novos: 0, erros: [{ error: 'IMAP não configurado' }], boxes: [], trigger };
+    await store.putScanLog(result);
+    return result;
   }
-  const { emails, errors } = await fetchAllAwsEmails(config, opts);
+  const { emails, errors, boxes } = await fetchAllAwsEmails(config, opts);
   let novos = 0;
   const erros = [...errors];
   const novosAssuntos = [];
@@ -51,7 +54,10 @@ async function runScan(opts = {}) {
     await notifyAll({ title, body, data: { tipo: 'novo-email', qtd: String(novos) } });
   }
 
-  return { scanned: emails.length, novos, erros };
+  const result = { scanned: emails.length, novos, erros, boxes, trigger };
+  // Registra o log da execução (conexão por caixa + totais) para exibir na UI. Falha suave.
+  await store.putScanLog(result);
+  return result;
 }
 
 module.exports = { runScan };

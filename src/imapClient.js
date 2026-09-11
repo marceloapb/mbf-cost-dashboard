@@ -83,14 +83,16 @@ async function fetchAwsEmailsFromBox(box, opts = {}) {
  * Falha suave por caixa: erro numa não derruba as outras.
  * @param {{host:string, port:number, mailboxes:Array}} config
  * @param {object} [opts]
- * @returns {Promise<{emails:Array, errors:Array<{user:string,error:string}>}>}
+ * @returns {Promise<{emails:Array, errors:Array<{user:string,error:string}>, boxes:Array<{user:string,ok:boolean,matched:number,error:string|null}>}>}
  */
 async function fetchAllAwsEmails(config, opts = {}) {
   const emails = [];
   const errors = [];
+  const boxes = []; // status de conexão por caixa (para a tela de log)
   for (const mb of config.mailboxes || []) {
     if (!mb.password) {
       errors.push({ user: mb.user, error: 'sem senha configurada' });
+      boxes.push({ user: mb.user, ok: false, matched: 0, error: 'sem senha configurada' });
       continue;
     }
     try {
@@ -103,11 +105,13 @@ async function fetchAllAwsEmails(config, opts = {}) {
         max: config.scanLimit || opts.max,
       });
       emails.push(...found);
+      boxes.push({ user: mb.user, ok: true, matched: found.length, error: null });
     } catch (err) {
       errors.push({ user: mb.user, error: err.message });
+      boxes.push({ user: mb.user, ok: false, matched: 0, error: err.message });
     }
   }
-  return { emails, errors };
+  return { emails, errors, boxes };
 }
 
 module.exports = { fetchAwsEmailsFromBox, fetchAllAwsEmails };
