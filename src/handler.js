@@ -254,7 +254,7 @@ exports.handler = async (event) => {
   // Evento agendado (EventBridge) → roda o scan de e-mails e encerra (sem HTTP).
   if (event && event.source === 'scheduled-scan') {
     try {
-      const result = await runScan();
+      const result = await runScan({ trigger: event.trigger || 'agendado' });
       console.log('Scan agendado:', JSON.stringify(result));
       return result;
     } catch (err) {
@@ -551,15 +551,27 @@ exports.handler = async (event) => {
           new InvokeCommand({
             FunctionName: fn,
             InvocationType: 'Event', // assíncrono (fire-and-forget)
-            Payload: Buffer.from(JSON.stringify({ source: 'scheduled-scan' })),
+            Payload: Buffer.from(JSON.stringify({ source: 'scheduled-scan', trigger: 'manual' })),
           })
         );
         return json(202, { started: true, message: 'Verificação iniciada em segundo plano.' });
       }
       // Fallback: sem nome da função, roda síncrono (pode estourar em caixas grandes).
-      return json(200, await runScan());
+      return json(200, await runScan({ trigger: 'manual' }));
     } catch (err) {
       console.error('Erro ao iniciar scan:', err);
+      return json(500, { error: 'internal_error', message: err.message });
+    }
+  }
+  // Log de conexão/scan — histórico das últimas execuções (conexão IMAP por caixa + totais).
+  if (path === '/api/emails/scan-log' && method === 'GET') {
+    const user = await sessionUser(event);
+    if (!user && !(await apiTokenOk(event))) return json(401, { error: 'unauthorized' });
+    try {
+      const logs = await emailStore.listScanLogs(20);
+      return json(200, { logs, last: logs[0] || null });
+    } catch (err) {
+      console.error('Erro ao listar scan log:', err);
       return json(500, { error: 'internal_error', message: err.message });
     }
   }
