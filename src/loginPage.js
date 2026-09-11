@@ -2,6 +2,7 @@
 
 const { FAVICON_TAG } = require('./brand');
 const { PWA_HEAD_TAGS } = require('./pwa');
+const { PUSH_CLIENT_SCRIPT } = require('./push');
 
 /**
  * Página de login (etapa 1: usuário + senha). Faz POST para /login.
@@ -266,6 +267,7 @@ function renderEmails(p) {
   <div class="toolbar">
     <button id="scanBtn">🔄 Buscar e-mails</button>
     <button id="analyzeAllBtn">🤖 Analisar todos pendentes</button>
+    <button id="pushBtn" style="display:none">🔔 Ativar notificações</button>
     <span class="hint" id="scanHint">Usuário: ${user}</span>
   </div>
   <div class="logpanel" id="logPanel">
@@ -411,10 +413,44 @@ function renderEmails(p) {
           })
           .catch(function(e){ scanHint.textContent = 'Erro: '+esc(e.message); analyzeAllBtn.disabled = false; });
       });
+      // Notificações push: mostra o botão conforme o estado e liga o clique.
+      var pushBtn = document.getElementById('pushBtn');
+      function refreshPushBtn(){
+        if (!window.mbfPush) { return; }
+        var st = window.mbfPush.status();
+        if (st === 'unsupported') { pushBtn.style.display = 'none'; return; }
+        if (st === 'granted') {
+          pushBtn.style.display = 'inline-block';
+          pushBtn.textContent = '🔔 Notificações ativas';
+          pushBtn.disabled = true;
+        } else if (st === 'denied') {
+          pushBtn.style.display = 'inline-block';
+          pushBtn.textContent = '🔕 Notificações bloqueadas';
+          pushBtn.disabled = true;
+        } else {
+          pushBtn.style.display = 'inline-block';
+          pushBtn.textContent = '🔔 Ativar notificações';
+          pushBtn.disabled = false;
+        }
+      }
+      if (pushBtn) {
+        // Só mostra o botão se o servidor tiver push configurado.
+        fetch('push-config', { credentials:'same-origin' })
+          .then(function(r){ return r.json(); })
+          .then(function(cfg){ if (cfg && cfg.configured) { refreshPushBtn(); } })
+          .catch(function(){});
+        pushBtn.addEventListener('click', function(){
+          pushBtn.disabled = true; scanHint.textContent = 'Solicitando permissão de notificação…';
+          window.mbfPush.enable()
+            .then(function(){ scanHint.textContent = 'Notificações ativadas! Você será avisado quando chegar um e-mail.'; refreshPushBtn(); })
+            .catch(function(e){ scanHint.textContent = 'Não foi possível ativar: ' + esc(e.message); refreshPushBtn(); });
+        });
+      }
       load();
       loadLog();
     })();
   </script>
+  ${PUSH_CLIENT_SCRIPT}
 </body>
 </html>`;
 }

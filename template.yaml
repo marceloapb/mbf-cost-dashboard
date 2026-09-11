@@ -12,6 +12,33 @@ Parameters:
     Description: >-
       JSON com multiplicador de margem por accountId.
       Ex: {"532404260870":1.5,"default":1.0}
+  # Credenciais de CLIENTE do Firebase (públicas por design). Deixe em branco
+  # para manter as notificações push desativadas. Preencha via --parameter-overrides
+  # no deploy quando tiver os valores do Console Firebase.
+  FirebaseApiKey:
+    Type: String
+    Default: ''
+    Description: Firebase Web apiKey (Configurações do projeto > app Web).
+  FirebaseAuthDomain:
+    Type: String
+    Default: ''
+    Description: 'Firebase authDomain (ex: seu-projeto.firebaseapp.com). Opcional; derivado do projectId se vazio.'
+  FirebaseProjectId:
+    Type: String
+    Default: ''
+    Description: Firebase projectId.
+  FirebaseMessagingSenderId:
+    Type: String
+    Default: ''
+    Description: Firebase messagingSenderId (Cloud Messaging Sender ID).
+  FirebaseAppId:
+    Type: String
+    Default: ''
+    Description: Firebase appId do app Web.
+  FirebaseVapidKey:
+    Type: String
+    Default: ''
+    Description: Chave VAPID (Cloud Messaging > Certificados push da Web).
 
 Globals:
   Function:
@@ -63,6 +90,15 @@ Resources:
           BEDROCK_MODEL_ID: amazon.nova-lite-v1:0
           SCAN_RULE_NAME: !Sub 'mbf-cost-dashboard-scan-${Stage}'
           SELF_FUNCTION_NAME: !Sub 'mbf-${Stage}-cost-dashboard'
+          # Notificações push (Web Push via Firebase). Credenciais de CLIENTE (públicas).
+          # Preencha os parâmetros Firebase* no deploy para ativar as notificações;
+          # enquanto estiverem vazios, o push fica desativado silenciosamente.
+          FIREBASE_API_KEY: !Ref FirebaseApiKey
+          FIREBASE_AUTH_DOMAIN: !Ref FirebaseAuthDomain
+          FIREBASE_PROJECT_ID: !Ref FirebaseProjectId
+          FIREBASE_MESSAGING_SENDER_ID: !Ref FirebaseMessagingSenderId
+          FIREBASE_APP_ID: !Ref FirebaseAppId
+          FIREBASE_VAPID_KEY: !Ref FirebaseVapidKey
       Policies:
         - Statement:
             - Effect: Allow

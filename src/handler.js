@@ -305,6 +305,21 @@ exports.handler = async (event) => {
       body: ICON_SVG,
     };
   }
+  // Config pública do push (Firebase Web + VAPID). Credenciais de cliente, lidas de env vars.
+  // Se não configurado, devolve {configured:false} e o front simplesmente não ativa push.
+  if (path === '/push-config') {
+    const { getPushConfig } = require('./push');
+    return json(200, getPushConfig(), { 'Cache-Control': 'no-cache' });
+  }
+  // Service worker do Firebase Messaging (precisa estar na raiz e com este nome exato).
+  if (path === '/firebase-messaging-sw.js') {
+    const { MESSAGING_SW } = require('./push');
+    return {
+      statusCode: 200,
+      headers: { 'Content-Type': 'application/javascript; charset=utf-8', 'Cache-Control': 'no-cache' },
+      body: MESSAGING_SW,
+    };
+  }
   if (method === 'OPTIONS') {
     return { statusCode: 204, headers: { 'Access-Control-Allow-Origin': '*' }, body: '' };
   }
