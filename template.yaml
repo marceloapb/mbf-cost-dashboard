@@ -43,6 +43,8 @@ Parameters:
 Globals:
   Function:
     Runtime: nodejs22.x
+    Architectures:
+      - arm64
     Timeout: 120
     MemorySize: 512
     Tracing: Active
