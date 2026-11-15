@@ -10,12 +10,9 @@ on:
       - '.deploy/**'
       - 'package.json'
       - 'package-lock.json'
-      - '.github/workflows/deploy.yml'
   workflow_dispatch:
 
-# OIDC: sem chaves estáticas
 permissions:
-  id-token: write
   contents: read
 
 concurrency:
@@ -26,43 +23,48 @@ env:
   AWS_REGION: us-east-1
   STACK_NAME: mbf-cost-dashboard
   SAM_BUCKET: mbf-sam-deploy-us-east-1
+  API_BASE_URL: https://sx35x2e9pd.execute-api.us-east-1.amazonaws.com/prod
 
 jobs:
-  test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
+  deploy:
+    name: Validate, deploy and smoke-test
+    runs-on: ubuntu-22.04
+    timeout-minutes: 25
+    permissions:
+      contents: read
+      id-token: write
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
         with:
           node-version: '22'
-          cache: 'npm'
-      - name: Instalar dependências
-        run: npm ci || npm install
-      - name: Rodar testes
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        # package-lock.json is out of sync with package.json.
+        # Reconcile and commit lockfile before changing this to npm ci.
+        run: npm install --prefer-offline --no-audit --no-fund
+
+      - name: Run tests
         run: node --test
 
-  deploy:
-    needs: test
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: '22'
-          cache: 'npm'
-      - name: Configurar credenciais AWS via OIDC
-        uses: aws-actions/configure-aws-credentials@v4
+      - name: Configure AWS credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v6
         with:
           role-to-assume: arn:aws:iam::975877354440:role/mbf-cost-dashboard-github-deploy
           aws-region: ${{ env.AWS_REGION }}
+          allowed-account-ids: '975877354440'
+
       - name: Setup SAM CLI
         uses: aws-actions/setup-sam@v2
-        with:
-          use-installer: true
+
+      - name: Validate SAM template
+        run: sam validate --lint
+
       - name: SAM build
         run: sam build
+
       - name: SAM deploy
         run: >-
           sam deploy
@@ -72,20 +74,16 @@ jobs:
           --capabilities CAPABILITY_IAM
           --no-confirm-changeset
           --no-fail-on-empty-changeset
-          --parameter-overrides file://.deploy/params.yaml
 
-  smoke-test:
-    needs: deploy
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Smoke test — /health e /login
+      - name: Smoke test — API health and login
         run: |
-          BASE="https://sx35x2e9pd.execute-api.us-east-1.amazonaws.com/prod"
-          echo "health:"
-          code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/health")
-          echo "  HTTP $code"; [ "$code" = "200" ] || exit 1
-          echo "login:"
-          code=$(curl -s -o /dev/null -w "%{http_code}" "$BASE/login")
-          echo "  HTTP $code"; [ "$code" = "200" ] || exit 1
-          echo "Smoke test OK"
+          set -euo pipefail
+          for endpoint in health login; do
+            status=$(curl --retry 4 --retry-delay 3 --retry-all-errors -s -o /dev/null -w '%{http_code}' "$API_BASE_URL/$endpoint")
+            if [[ "$status" != 200 ]]; then
+              echo "::error::$endpoint returned HTTP $status"
+              exit 1
+            fi
+            echo "$endpoint: HTTP $status"
+          done
+          echo "Cost dashboard smoke test OK" >> "$GITHUB_STEP_SUMMARY"
